@@ -20,6 +20,8 @@ The **OpenPiste Protocol** is a proposal for a modern, open communication standa
 
 This is a working proposal, not a ratified standard. It is published in the hope that it will be useful, reviewed, and improved by the fencing electronics community.
 
+**Remark**: A middle step was considered — parsing EFP1.1 into JSON using the same field names as keys and publishing the result over MQTT. This was discarded for four reasons: it adds no meaningful value over Level 1, since consumers must still understand EFP1.1 field semantics; it requires two parsing steps (CSV at the bridge, JSON at every consumer) making the bridge more complex than necessary; it inherits EFP1.1's structural limitations — string-encoded integers, awkward field names, flat structure — in a format where consumers would reasonably expect clean typed data; and it creates a false impression of a modern protocol while delivering the constraints of a legacy one. Level 1 is honest about what it is. Level 2 makes a clean break. The middle step is neither.
+
 ---
 
 ## Documents
