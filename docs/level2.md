@@ -68,7 +68,7 @@ This is a working proposal, not a ratified standard. It is published in the hope
 
 Level 2 is the native JSON protocol of the OpenPiste platform. It is designed from the ground up for MQTT, taking full advantage of the broker's publish/subscribe model, topic hierarchy, and retained message capability. It does not carry forward the encoding constraints of EFP1.1.
 
-Level 2 is intended to be a genuinely open standard — any apparatus manufacturer, software developer, club, or federation can implement it without restriction. The protocol identifier `OPP2` appears in every message so that receivers can identify the source and version unambiguously.
+Level 2 is intended to be a genuinely open standard — any apparatus manufacturer, software developer, club, or federation can implement it without restriction. The protocol identifier `OPP2` and a separate `version` field appear in every message, allowing receivers to identify the protocol family and enforce compliance rules appropriate for the declared version.
 
 A JSON Schema for machine validation of all message types is maintained as a separate document in the OpenPiste repository. See `schemas/opp2/` at https://github.com/OpenPiste/protocol. *(Schema publication is a pending task — see Section 25.)*
 
@@ -108,7 +108,7 @@ Level 2 draws on two existing protocols for its design:
 |-------------------|--------------|-------|
 | Msg 1 — lights | `lights` | Boolean fields; timestamp added |
 | Msg 2 — clock | `clock` | Typed fields; timestamp added |
-| Msg 3 — scores/cards | `score` | Integer fields |
+| Msg 3 — scores/cards | `score` | Integer fields; black card added |
 | Msg 4 — status | `state` + `connection` | Split into apparatus state and connection status |
 | Msg 5+6 — competitor names | `fencers` | Restructured with left/right/common sections |
 | Msg 7 — competition info | `match` | Match and competition metadata; round added |
@@ -246,10 +246,11 @@ Every Level 2 message contains the following common fields. They appear first in
 | Field | Type | QoS 0 | QoS 1 | Description |
 |-------|------|-------|-------|-------------|
 | `protocol` | string | Mandatory | Mandatory | Always `"OPP2"` |
+| `version` | string | Mandatory | Mandatory | Protocol version — e.g. `"1.0"`. See Section 23. |
 | `seq` | integer | Absent | Mandatory | Global sequence counter — see Section 21 |
 | `ts` | integer | Mandatory | Recommended | Timestamp — see Section 22 |
 
-`ts` is mandatory on QoS 0 messages (lights, clock, blade_contact) and on control messages. It is recommended on all other QoS 1 messages.
+`ts` is mandatory on QoS 0 messages (clock, blade_contact) and on control messages. It is recommended on all other QoS 1 messages.
 
 Note that publisher identity — previously carried as a `source` field in the payload — is encoded in the topic's `{publisher}` segment instead. See Section 5 for the rationale.
 
@@ -273,6 +274,7 @@ Light colour conventions apply across all weapons:
 ```json
 {
   "protocol": "OPP2",
+  "version":  "1.0",
   "seq":      42,
   "ts":       1715539200123,
   "right": {
@@ -288,15 +290,16 @@ Light colour conventions apply across all weapons:
 
 ### Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `protocol` | string | Always `"OPP2"` |
-| `seq` | integer | Global sequence counter |
-| `ts` | integer | Mandatory — timestamp of light change, see Section 22 |
-| `right.green` | boolean | Right fencer on-target light |
-| `right.white` | boolean | Right fencer white (off-target / broken circuit) light |
-| `left.red` | boolean | Left fencer on-target light |
-| `left.white` | boolean | Left fencer white (off-target / broken circuit) light |
+| Field | Type | M/O | Default | Description |
+|-------|------|-----|---------|-------------|
+| `protocol` | string | M | — | Always `"OPP2"` |
+| `version` | string | M | — | Protocol version, e.g. `"1.0"` |
+| `seq` | integer | M | — | Global sequence counter |
+| `ts` | integer | M | — | Timestamp of light change, see Section 22 |
+| `right.green` | boolean | M | `false` | Right fencer on-target light |
+| `right.white` | boolean | M | `false` | Right fencer white (off-target / broken circuit) light |
+| `left.red` | boolean | M | `false` | Left fencer on-target light |
+| `left.white` | boolean | M | `false` | Left fencer white (off-target / broken circuit) light |
 
 ---
 
@@ -313,6 +316,7 @@ Published once per second while the stopwatch is running. Also published immedia
 ```json
 {
   "protocol": "OPP2",
+  "version":  "1.0",
   "ts":       1715539200123,
   "running":  true,
   "time_ms":  89250,
@@ -322,13 +326,14 @@ Published once per second while the stopwatch is running. Also published immedia
 
 ### Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `protocol` | string | Always `"OPP2"` |
-| `ts` | integer | Mandatory — timestamp of this clock publication, see Section 22 |
-| `running` | boolean | `true` if the stopwatch is currently running |
-| `time_ms` | integer | Current stopwatch value in milliseconds |
-| `time` | string | Formatted as `"M:SS"` or `"M:SS.cc"`. Hundredths mandatory below 10 seconds. |
+| Field | Type | M/O | Default | Description |
+|-------|------|-----|---------|-------------|
+| `protocol` | string | M | — | Always `"OPP2"` |
+| `version` | string | M | — | Protocol version, e.g. `"1.0"` |
+| `ts` | integer | M | — | Timestamp of this clock publication, see Section 22 |
+| `running` | boolean | M | `false` | `true` if the stopwatch is currently running |
+| `time_ms` | integer | M | `0` | Current stopwatch value in milliseconds |
+| `time` | string | M | `"0:00"` | Formatted as `"M:SS"` or `"M:SS.cc"`. Hundredths mandatory below 10 seconds. |
 
 Note: `seq` is absent on QoS 0 messages.
 
@@ -351,6 +356,7 @@ QoS 0 is used because retransmission latency would degrade timestamp precision, 
 ```json
 {
   "protocol": "OPP2",
+  "version":  "1.0",
   "ts":       1715539200089,
   "active":   true
 }
@@ -358,11 +364,12 @@ QoS 0 is used because retransmission latency would degrade timestamp precision, 
 
 ### Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `protocol` | string | Always `"OPP2"` |
-| `ts` | integer | Mandatory — timestamp of contact event, see Section 22 |
-| `active` | boolean | `true` — blade contact detected; `false` — contact cleared |
+| Field | Type | M/O | Default | Description |
+|-------|------|-----|---------|-------------|
+| `protocol` | string | M | — | Always `"OPP2"` |
+| `version` | string | M | — | Protocol version, e.g. `"1.0"` |
+| `ts` | integer | M | — | Timestamp of contact event, see Section 22 |
+| `active` | boolean | M | — | `true` — blade contact detected; `false` — contact cleared |
 
 Note: `seq` is absent on QoS 0 messages.
 
@@ -381,18 +388,21 @@ Published on any change to scores, cards, or priority. The apparatus publishes u
 ```json
 {
   "protocol": "OPP2",
+  "version":  "1.0",
   "seq":      43,
   "right": {
     "score":       8,
     "status":      "V",
     "yellow_card": false,
-    "red_cards":   1
+    "red_cards":   1,
+    "black_card":  false
   },
   "left": {
     "score":       6,
     "status":      "D",
     "yellow_card": false,
-    "red_cards":   0
+    "red_cards":   0,
+    "black_card":  false
   },
   "priority": "N"
 }
@@ -400,19 +410,22 @@ Published on any change to scores, cards, or priority. The apparatus publishes u
 
 ### Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `protocol` | string | Always `"OPP2"` |
-| `seq` | integer | Global sequence counter |
-| `right.score` | integer | Right fencer score |
-| `right.status` | string | Right fencer match status — see values below |
-| `right.yellow_card` | boolean | Right fencer yellow card |
-| `right.red_cards` | integer | Right fencer red card count (0–9) |
-| `left.score` | integer | Left fencer score |
-| `left.status` | string | Left fencer match status |
-| `left.yellow_card` | boolean | Left fencer yellow card |
-| `left.red_cards` | integer | Left fencer red card count (0–9) |
-| `priority` | string | `"N"` none, `"R"` right, `"L"` left |
+| Field | Type | M/O | Default | Description |
+|-------|------|-----|---------|-------------|
+| `protocol` | string | M | — | Always `"OPP2"` |
+| `version` | string | M | — | Protocol version, e.g. `"1.0"` |
+| `seq` | integer | M | — | Global sequence counter |
+| `right.score` | integer | M | `0` | Right fencer score |
+| `right.status` | string | M | `"U"` | Right fencer match status — see values below |
+| `right.yellow_card` | boolean | M | `false` | Right fencer yellow card |
+| `right.red_cards` | integer | M | `0` | Right fencer red card count (0–9) |
+| `right.black_card` | boolean | M | `false` | Right fencer black card |
+| `left.score` | integer | M | `0` | Left fencer score |
+| `left.status` | string | M | `"U"` | Left fencer match status |
+| `left.yellow_card` | boolean | M | `false` | Left fencer yellow card |
+| `left.red_cards` | integer | M | `0` | Left fencer red card count (0–9) |
+| `left.black_card` | boolean | M | `false` | Left fencer black card |
+| `priority` | string | M | `"N"` | `"N"` none, `"R"` right, `"L"` left |
 
 **Status values:**
 
@@ -439,11 +452,12 @@ Indicates whether the apparatus is currently connected to the broker. This topic
 
 ```json
 {
-  "protocol": "OPP2",
-  "seq":      1,
-  "online":   true,
-  "device":   "OpenPiste-ESP32",
-  "version":  "1.0.0"
+  "protocol":   "OPP2",
+  "version":    "1.0",
+  "seq":        1,
+  "online":     true,
+  "device":     "OpenPiste-ESP32",
+  "fw_version": "1.0.0"
 }
 ```
 
@@ -457,13 +471,14 @@ Indicates whether the apparatus is currently connected to the broker. This topic
 
 ### Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `protocol` | string | Always `"OPP2"` (omitted in LWT payload) |
-| `seq` | integer | Global sequence counter (omitted in LWT payload) |
-| `online` | boolean | `true` — apparatus connected; `false` — offline |
-| `device` | string | Device model or identifier (optional) |
-| `version` | string | Firmware or software version (optional) |
+| Field | Type | M/O | Default | Description |
+|-------|------|-----|---------|-------------|
+| `protocol` | string | M | — | Always `"OPP2"` (omitted in LWT payload) |
+| `version` | string | M | — | Protocol version, e.g. `"1.0"` (omitted in LWT payload) |
+| `seq` | integer | M | — | Global sequence counter (omitted in LWT payload) |
+| `online` | boolean | M | — | `true` — apparatus connected; `false` — offline |
+| `device` | string | O | — | Device model or identifier |
+| `fw_version` | string | O | — | Firmware version of the apparatus |
 
 ---
 
@@ -480,6 +495,7 @@ Indicates the current operational state of the scoring apparatus. Published on e
 ```json
 {
   "protocol": "OPP2",
+  "version":  "1.0",
   "seq":      44,
   "state":    "F"
 }
@@ -487,11 +503,12 @@ Indicates the current operational state of the scoring apparatus. Published on e
 
 ### Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `protocol` | string | Always `"OPP2"` |
-| `seq` | integer | Global sequence counter |
-| `state` | string | Apparatus state — see values below |
+| Field | Type | M/O | Default | Description |
+|-------|------|-----|---------|-------------|
+| `protocol` | string | M | — | Always `"OPP2"` |
+| `version` | string | M | — | Protocol version, e.g. `"1.0"` |
+| `seq` | integer | M | — | Global sequence counter |
+| `state` | string | M | `"W"` | Apparatus state — see values below |
 
 **State values** (inherited from EFP1.1):
 
@@ -518,6 +535,7 @@ Published when any participant identity information changes. In team competition
 ```json
 {
   "protocol": "OPP2",
+  "version":  "1.0",
   "seq":      45,
   "left": {
     "fencer": {
@@ -560,30 +578,31 @@ Published when any participant identity information changes. In team competition
 
 ### Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `protocol` | string | Always `"OPP2"` |
-| `seq` | integer | Global sequence counter |
-| `left.fencer.id` | string | Left fencer identifier |
-| `left.fencer.name` | string | Left fencer name |
-| `left.fencer.nation` | string | IOC 3-letter nation code |
-| `left.coach.id` | string | Left fencer coach identifier (optional) |
-| `left.coach.name` | string | Left fencer coach name (optional) |
-| `left.coach.nation` | string | Left fencer coach nation (optional) |
-| `right.fencer.id` | string | Right fencer identifier |
-| `right.fencer.name` | string | Right fencer name |
-| `right.fencer.nation` | string | IOC 3-letter nation code |
-| `right.coach.id` | string | Right fencer coach identifier (optional) |
-| `right.coach.name` | string | Right fencer coach name (optional) |
-| `right.coach.nation` | string | Right fencer coach nation (optional) |
-| `common.referee.id` | string | Referee identifier (optional) |
-| `common.referee.name` | string | Referee name (optional) |
-| `common.referee.nation` | string | Referee nation (optional) |
-| `common.video_official.id` | string | Video review official identifier (optional) |
-| `common.video_official.name` | string | Video review official name (optional) |
-| `common.video_official.nation` | string | Video review official nation (optional) |
+| Field | Type | M/O | Default | Description |
+|-------|------|-----|---------|-------------|
+| `protocol` | string | M | — | Always `"OPP2"` |
+| `version` | string | M | — | Protocol version, e.g. `"1.0"` |
+| `seq` | integer | M | — | Global sequence counter |
+| `left.fencer.id` | string | M | — | Left fencer identifier |
+| `left.fencer.name` | string | M | — | Left fencer name |
+| `left.fencer.nation` | string | M | — | IOC 3-letter nation code |
+| `left.coach.id` | string | O | — | Left fencer coach identifier |
+| `left.coach.name` | string | O | — | Left fencer coach name |
+| `left.coach.nation` | string | O | — | Left fencer coach nation |
+| `right.fencer.id` | string | M | — | Right fencer identifier |
+| `right.fencer.name` | string | M | — | Right fencer name |
+| `right.fencer.nation` | string | M | — | IOC 3-letter nation code |
+| `right.coach.id` | string | O | — | Right fencer coach identifier |
+| `right.coach.name` | string | O | — | Right fencer coach name |
+| `right.coach.nation` | string | O | — | Right fencer coach nation |
+| `common.referee.id` | string | O | — | Referee identifier |
+| `common.referee.name` | string | O | — | Referee name |
+| `common.referee.nation` | string | O | — | Referee nation |
+| `common.video_official.id` | string | O | — | Video review official identifier |
+| `common.video_official.name` | string | O | — | Video review official name |
+| `common.video_official.nation` | string | O | — | Video review official nation |
 
-If a field is not available it is omitted. Receivers MUST handle missing fields gracefully.
+Optional fields SHOULD be omitted when not available. Receivers MUST handle their absence gracefully. See Section 20 for the mandatory/optional field model.
 
 ---
 
@@ -600,6 +619,7 @@ Published when match or competition metadata changes, including round changes du
 ```json
 {
   "protocol":    "OPP2",
+  "version":     "1.0",
   "seq":         46,
   "weapon":      "E",
   "type":        "I",
@@ -615,19 +635,20 @@ Published when match or competition metadata changes, including round changes du
 
 ### Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `protocol` | string | Always `"OPP2"` |
-| `seq` | integer | Global sequence counter |
-| `weapon` | string | `"F"` foil, `"E"` épée, `"S"` sabre |
-| `type` | string | `"I"` individual, `"T"` team |
-| `competition` | string | Competition identifier |
-| `phase_type` | string | Phase type — see values below |
-| `phase` | string | Phase identifier |
-| `poule` | string | Poule or tableau identifier |
-| `match` | integer | Match number |
-| `round` | integer | Current round or period (team: 1–9; individual: 1–3) |
-| `scheduled` | string | Scheduled start time as `"HH:MM"` (optional) |
+| Field | Type | M/O | Default | Description |
+|-------|------|-----|---------|-------------|
+| `protocol` | string | M | — | Always `"OPP2"` |
+| `version` | string | M | — | Protocol version, e.g. `"1.0"` |
+| `seq` | integer | M | — | Global sequence counter |
+| `weapon` | string | M | — | `"F"` foil, `"E"` épée, `"S"` sabre |
+| `type` | string | M | — | `"I"` individual, `"T"` team |
+| `competition` | string | M | — | Competition identifier |
+| `phase_type` | string | M | — | Phase type — see values below |
+| `phase` | string | M | — | Phase identifier |
+| `poule` | string | M | — | Poule or tableau identifier |
+| `match` | integer | M | — | Match number |
+| `round` | integer | M | `1` | Current round or period (team: 1–9; individual: 1–3) |
+| `scheduled` | string | O | — | Scheduled start time as `"HH:MM"` |
 
 **Phase type values:**
 
@@ -655,6 +676,7 @@ Published on any change to the unwillingness-to-fight (passivity) timer or P-car
 ```json
 {
   "protocol": "OPP2",
+  "version":  "1.0",
   "seq":      47,
   "time_ms":  60000,
   "time":     "1:00",
@@ -669,16 +691,17 @@ Published on any change to the unwillingness-to-fight (passivity) timer or P-car
 
 ### Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `protocol` | string | Always `"OPP2"` |
-| `seq` | integer | Global sequence counter |
-| `time_ms` | integer | UW2F timer value in milliseconds, counting up from zero |
-| `time` | string | UW2F timer formatted as `"M:SS"` |
-| `right.p_card` | integer | Right fencer P-card status — see values below |
-| `left.p_card` | integer | Left fencer P-card status |
+| Field | Type | M/O | Default | Description |
+|-------|------|-----|---------|-------------|
+| `protocol` | string | M | — | Always `"OPP2"` |
+| `version` | string | M | — | Protocol version, e.g. `"1.0"` |
+| `seq` | integer | M | — | Global sequence counter |
+| `time_ms` | integer | M* | `0` | UW2F timer value in milliseconds, counting up from zero |
+| `time` | string | M* | `"0:00"` | UW2F timer formatted as `"M:SS"` |
+| `right.p_card` | integer | M | `0` | Right fencer P-card status — see values below |
+| `left.p_card` | integer | M | `0` | Left fencer P-card status |
 
-At least one of `time_ms` or `time` MUST be present. Implementations MAY include both.
+\* At least one of `time_ms` or `time` MUST be present. Implementations MAY include both.
 
 **P-card values:**
 
@@ -708,6 +731,7 @@ Published when a medical timeout is granted and on every subsequent timer update
 ```json
 {
   "protocol":     "OPP2",
+  "version":      "1.0",
   "seq":          48,
   "active":       true,
   "side":         "left",
@@ -722,6 +746,7 @@ Published when a medical timeout is granted and on every subsequent timer update
 ```json
 {
   "protocol": "OPP2",
+  "version":  "1.0",
   "seq":      49,
   "active":   false,
   "side":     "left"
@@ -730,17 +755,18 @@ Published when a medical timeout is granted and on every subsequent timer update
 
 ### Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `protocol` | string | Always `"OPP2"` |
-| `seq` | integer | Global sequence counter |
-| `active` | boolean | `true` — timeout in progress; `false` — timeout ended or cleared |
-| `side` | string | `"left"` or `"right"` — the fencer granted the timeout |
-| `duration_ms` | integer | Total timeout duration in milliseconds as specified at initiation (present when active) |
-| `remaining_ms` | integer | Remaining time in milliseconds, counting down (present when active) |
-| `remaining` | string | Remaining time formatted as `"M:SS"` (present when active) |
+| Field | Type | M/O | Default | Description |
+|-------|------|-----|---------|-------------|
+| `protocol` | string | M | — | Always `"OPP2"` |
+| `version` | string | M | — | Protocol version, e.g. `"1.0"` |
+| `seq` | integer | M | — | Global sequence counter |
+| `active` | boolean | M | `false` | `true` — timeout in progress; `false` — timeout ended or cleared |
+| `side` | string | M | — | `"left"` or `"right"` — the fencer granted the timeout |
+| `duration_ms` | integer | M when active | — | Total timeout duration in milliseconds as specified at initiation |
+| `remaining_ms` | integer | M* when active | — | Remaining time in milliseconds, counting down |
+| `remaining` | string | M* when active | — | Remaining time formatted as `"M:SS"` |
 
-Timer resolution is 1 second. At least one of `remaining_ms` or `remaining` MUST be present when active.
+\* At least one of `remaining_ms` or `remaining` MUST be present when active. Timer resolution is 1 second.
 
 ---
 
@@ -757,6 +783,7 @@ Published when a video review is requested or resolved. Carries both the current
 ```json
 {
   "protocol": "OPP2",
+  "version":  "1.0",
   "seq":      50,
   "left": {
     "remaining": 1,
@@ -778,14 +805,15 @@ Published when a video review is requested or resolved. Carries both the current
 
 ### Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `protocol` | string | Always `"OPP2"` |
-| `seq` | integer | Global sequence counter |
-| `left.remaining` | integer | Video review calls remaining for left fencer |
-| `left.calls` | array | History of all video review calls made by left fencer this bout |
-| `right.remaining` | integer | Video review calls remaining for right fencer |
-| `right.calls` | array | History of all video review calls made by right fencer this bout |
+| Field | Type | M/O | Default | Description |
+|-------|------|-----|---------|-------------|
+| `protocol` | string | M | — | Always `"OPP2"` |
+| `version` | string | M | — | Protocol version, e.g. `"1.0"` |
+| `seq` | integer | M | — | Global sequence counter |
+| `left.remaining` | integer | M | — | Video review calls remaining for left fencer |
+| `left.calls` | array | M | `[]` | History of all video review calls made by left fencer this bout |
+| `right.remaining` | integer | M | — | Video review calls remaining for right fencer |
+| `right.calls` | array | M | `[]` | History of all video review calls made by right fencer this bout |
 
 **Call history object fields:**
 
@@ -817,6 +845,7 @@ Published when a control event occurs. This topic is bidirectional — it carrie
 ```json
 {
   "protocol": "OPP2",
+  "version":  "1.0",
   "seq":      51,
   "ts":       1715539200456,
   "command":  "MEDICAL",
@@ -827,14 +856,15 @@ Published when a control event occurs. This topic is bidirectional — it carrie
 
 ### Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `protocol` | string | Always `"OPP2"` |
-| `seq` | integer | Global sequence counter |
-| `ts` | integer | Mandatory — timestamp when command was issued, see Section 22 |
-| `command` | string | Command name — see defined values below |
-| `side` | string | `"left"` or `"right"` — for side-specific commands (optional) |
-| `duration` | integer | Duration in seconds — for MEDICAL command only (optional) |
+| Field | Type | M/O | Default | Description |
+|-------|------|-----|---------|-------------|
+| `protocol` | string | M | — | Always `"OPP2"` |
+| `version` | string | M | — | Protocol version, e.g. `"1.0"` |
+| `seq` | integer | M | — | Global sequence counter |
+| `ts` | integer | M | — | Timestamp when command was issued, see Section 22 |
+| `command` | string | M | — | Command name — see defined values below |
+| `side` | string | O | — | `"left"` or `"right"` — for side-specific commands |
+| `duration` | integer | O | — | Duration in seconds — for MEDICAL command only |
 
 ### Defined command values
 
@@ -861,6 +891,8 @@ Additional command values may be defined in future revisions without a protocol 
 
 ## 20. Field types and conventions
 
+### 20.1 JSON types
+
 | Type | JSON representation | Notes |
 |------|--------------------|----|
 | Boolean | `true` / `false` | Never `"0"` / `"1"` or string-encoded |
@@ -872,7 +904,25 @@ Additional command values may be defined in future revisions without a protocol 
 
 **Nation codes** use IOC 3-letter codes (e.g. `"FRA"`, `"GBR"`, `"ITA"`).
 
-**Missing fields:** If a field is not available it SHOULD be omitted rather than sent as null or empty string. Receivers MUST handle missing fields gracefully.
+### 20.2 Mandatory and optional fields
+
+Each field in the per-message tables is marked **M** (mandatory) or **O** (optional).
+
+**Mandatory fields** MUST be present in every message published by a sender claiming compliance with the declared `version`. A receiver that receives a message with a missing mandatory field SHOULD treat it as a protocol error and MAY discard the message. Mandatory fields that carry a default value in the table have that default defined for receiver use only — a compliant sender must still include the field.
+
+**Optional fields** MAY be absent. When absent, the receiver MUST apply the default value shown in the table. Optional fields with no default (shown as —) have no meaningful default and their absence simply means the information is unavailable; receivers MUST handle this gracefully.
+
+### 20.3 Versioning and field obligations
+
+Which fields are mandatory depends on the protocol version the sender declares in the `version` field. A sender MUST include all mandatory fields defined for the version it declares. A receiver encountering a sender running an older version MUST apply defaults for any mandatory fields that are absent — those fields may not yet have existed when that sender's firmware was written.
+
+Concretely:
+- **Receiver knows v1.0, sees v1.0** — enforce mandatory fields strictly; missing mandatory fields are a sender error.
+- **Receiver knows v1.1, sees v1.0** — apply defaults for fields added in v1.1; the sender legitimately does not send them.
+- **Receiver knows v1.0, sees v1.1** — accept the message; ignore unknown fields per Section 23.2.
+- **Receiver encounters an unknown protocol version** — accept permissively; apply defaults for any absent fields.
+
+This model ensures that an older sender remains interoperable in an upgraded system without requiring a firmware update, as long as the message remains structurally valid JSON.
 
 ---
 
@@ -967,21 +1017,26 @@ When using blade contact or lights timestamps to synchronise video overlays, bot
 
 ## 23. Versioning and compatibility
 
-### 23.1 Protocol identifier
+### 23.1 Protocol identifier and version
 
-Every message carries `"protocol": "OPP2"`. A receiver SHOULD check this field and MAY ignore messages with an unrecognised identifier.
+Every message carries two mandatory fields that together identify the protocol:
 
-### 23.2 Adding fields
+- `"protocol": "OPP2"` — the protocol family identifier. Fixed for all Level 2 messages.
+- `"version": "1.0"` — the protocol version as a `"major.minor"` string.
 
-New fields may be added to any message in a minor revision without changing the protocol identifier. JSON parsers silently ignore unknown keys, so existing receivers continue to operate correctly.
+A receiver SHOULD check the `protocol` field and MAY ignore messages with an unrecognised identifier. The `version` field governs which fields are mandatory — see Section 20.2 and 20.3.
+
+### 23.2 Minor revisions — adding fields
+
+New fields may be added to any message in a minor revision (e.g. `"1.0"` → `"1.1"`). The new fields are mandatory for senders declaring the new version. Receivers that know only the older version will encounter unknown fields, which JSON parsers silently ignore — existing receivers continue to operate correctly. Receivers that know the newer version but encounter a sender declaring an older version MUST apply the defined defaults for the new fields.
 
 ### 23.3 Breaking changes
 
-Removing or renaming existing fields, or changing field types, constitutes a breaking change and requires a new protocol identifier (e.g. `"OPP3"`).
+Removing or renaming existing mandatory fields, or changing field types, constitutes a breaking change and requires a new protocol identifier (e.g. `"OPP3"`). The `version` field resets to `"1.0"` with each new protocol identifier.
 
-### 23.4 Adding command values, phase types, and publisher values
+### 23.4 Adding enumerated values
 
-New values for `command`, `phase_type`, and the `{publisher}` topic segment are not breaking changes. Receivers that encounter unknown values SHOULD ignore them.
+New values for `command`, `phase_type`, and the `{publisher}` topic segment are not breaking changes and do not require a version increment. Receivers that encounter unknown values SHOULD ignore them.
 
 ---
 
