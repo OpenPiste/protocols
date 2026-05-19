@@ -86,9 +86,9 @@ A JSON Schema for machine validation of all message types is maintained as a sep
 
 **Idempotent event processing.** Every QoS 1 message carries a mandatory sequence counter (`seq`) allowing consumers to detect and discard duplicate deliveries. See Section 21.
 
-**Explicit message origin.** Every message carries a mandatory `source` field identifying whether it originated from the apparatus or from software. This is the Level 2 equivalent of EFP1.1's INFO/DISP distinction and prepares the ground for a multi-producer ecosystem.
+**Publisher identity belongs in the topic, not the payload.** The publisher role — apparatus, software, or remote — is encoded in the MQTT topic, not in the message payload. This allows subscribers to filter by publisher at the broker level, without parsing any payload. It also enables clean broker-side access control: each publisher role can be restricted to its own topic namespace. See Section 5 for the topic structure and Section 24 for the security model this enables.
 
-**Topic is authoritative for piste identity.** The piste identifier is carried in the MQTT topic and is not duplicated in the payload. The topic is the single authoritative source of piste identity.
+**Topic is authoritative for piste identity and publisher role.** The piste identifier and publisher role are carried in the MQTT topic and are not duplicated in the payload. The topic is the single authoritative source of both.
 
 **Extensible control.** The control topic carries named command events. New commands can be added without changing the protocol version or breaking existing receivers.
 
@@ -168,7 +168,7 @@ Retained messages mean the broker holds the last published value on each topic. 
 Every apparatus MUST configure a Last Will and Testament (LWT) message when connecting to the broker. The LWT is set in the MQTT CONNECT packet — it is not published by the apparatus directly, but by the broker automatically if the apparatus disconnects unexpectedly.
 
 The LWT MUST be configured as follows:
-- **Topic:** `openpiste/{piste_id}/connection`
+- **Topic:** `openpiste/{piste_id}/apparatus/connection`
 - **Payload:** `{"online": false}`
 - **QoS:** 1
 - **Retain:** true
@@ -184,46 +184,58 @@ Standard MQTT port 1883 (unencrypted) or 8883 (TLS).
 All Level 2 topics follow this pattern:
 
 ```
-openpiste/{piste_id}/{message_type}
+openpiste/{piste_id}/{publisher}/{message_type}
 ```
 
 | Segment | Description | Examples |
 |---------|-------------|---------|
 | `openpiste` | Fixed platform prefix | — |
 | `{piste_id}` | Piste identifier — number, name, or colour | `17`, `podium`, `rouge`, `vert` |
+| `{publisher}` | Role of the publishing device — see values below | `apparatus`, `software`, `remote` |
 | `{message_type}` | Message type as defined in Section 6 | `lights`, `clock`, `score` |
 
-The `{piste_id}` in the topic is the **authoritative** source of piste identity. It is not duplicated in the payload. Consumers that need to store the piste identifier alongside the payload (for logging, analytics, or display purposes) MUST extract it from the topic at the time of receipt.
+**Publisher values:**
+
+| Value | Meaning |
+|-------|---------|
+| `apparatus` | Message published by the scoring apparatus |
+| `software` | Message published by competition management software |
+| `remote` | Message published by a remote control device |
+
+The `{piste_id}` and `{publisher}` segments in the topic are the **authoritative** sources of piste identity and publisher role respectively. Neither is duplicated in the payload. Consumers that need to store these values alongside the payload (for logging, analytics, or display purposes) MUST extract them from the topic at the time of receipt.
+
+Encoding the publisher role in the topic — rather than in a payload field — allows subscribers to filter by publisher at the broker level, with no payload parsing required. It also maps directly onto broker access control: each publisher role can be restricted to writing only within its own topic namespace (see Section 24). An early draft of this protocol carried a `source` field in every payload for this purpose; this was replaced by the topic segment after considering that routing information belongs in the topic, not in application data.
 
 Useful subscription patterns:
 
 ```
-openpiste/#                  # all messages from all pistes
-openpiste/17/#               # all messages from piste 17
-openpiste/+/lights           # lights from all pistes
-openpiste/+/score            # scores from all pistes
-openpiste/+/control          # control events from all pistes
-openpiste/+/connection       # connection status from all pistes
+openpiste/#                           # all messages from all pistes
+openpiste/17/#                        # all messages from piste 17
+openpiste/+/apparatus/#               # all apparatus messages from all pistes
+openpiste/+/apparatus/lights          # lights from all pistes
+openpiste/+/apparatus/score           # scores from all pistes
+openpiste/+/+/control                 # control events from all publishers, all pistes
+openpiste/+/apparatus/connection      # connection status from all pistes
 ```
 
 ---
 
 ## 6. Message overview
 
-| Topic suffix | QoS | Retained | Published when |
-|-------------|-----|----------|---------------|
-| `lights` | 1 | Yes | On any light change |
-| `clock` | 0 | Yes | Every second while running; on any clock state change |
-| `blade_contact` | 0 | No | On blade contact event |
-| `score` | 1 | Yes | On score, card, or priority change |
-| `connection` | 1 | Yes | On connection or disconnection (including LWT) |
-| `state` | 1 | Yes | On apparatus state change |
-| `fencers` | 1 | Yes | On fencer, coach, or referee identity change |
-| `match` | 1 | Yes | On match or competition metadata change |
-| `uw2f` | 1 | Yes | On UW2F timer or P-card change |
-| `medical` | 1 | Yes | On medical timeout event or timer update |
-| `video_review` | 1 | Yes | On video review request or resolution |
-| `control` | 1 | No | On remote control event |
+| Topic suffix | Publisher | QoS | Retained | Published when |
+|-------------|-----------|-----|----------|---------------|
+| `lights` | apparatus | 1 | Yes | On any light change |
+| `clock` | apparatus | 0 | Yes | Every second while running; on any clock state change |
+| `blade_contact` | apparatus | 0 | No | On blade contact event |
+| `score` | apparatus or software | 1 | Yes | On score, card, or priority change |
+| `connection` | apparatus | 1 | Yes | On connection or disconnection (including LWT) |
+| `state` | apparatus | 1 | Yes | On apparatus state change |
+| `fencers` | software | 1 | Yes | On fencer, coach, or referee identity change |
+| `match` | software | 1 | Yes | On match or competition metadata change |
+| `uw2f` | apparatus | 1 | Yes | On UW2F timer or P-card change |
+| `medical` | apparatus | 1 | Yes | On medical timeout event or timer update |
+| `video_review` | apparatus or software | 1 | Yes | On video review request or resolution |
+| `control` | apparatus, software, or remote | 1 | No | On remote control event |
 
 ---
 
@@ -234,26 +246,18 @@ Every Level 2 message contains the following common fields. They appear first in
 | Field | Type | QoS 0 | QoS 1 | Description |
 |-------|------|-------|-------|-------------|
 | `protocol` | string | Mandatory | Mandatory | Always `"OPP2"` |
-| `source` | string | Mandatory | Mandatory | Message origin — see values below |
 | `seq` | integer | Absent | Mandatory | Global sequence counter — see Section 21 |
 | `ts` | integer | Mandatory | Recommended | Timestamp — see Section 22 |
 
-**Source values:**
-
-| Value | Meaning |
-|-------|---------|
-| `"apparatus"` | Message originated from the scoring apparatus |
-| `"software"` | Message originated from competition management software |
-
-This is the Level 2 equivalent of EFP1.1's INFO/DISP distinction. An apparatus reporting its own state publishes `"source": "apparatus"`. Software pushing configuration, fencer names, or corrected scores publishes `"source": "software"`. Additional source values may be defined in future revisions without a breaking change.
-
 `ts` is mandatory on QoS 0 messages (lights, clock, blade_contact) and on control messages. It is recommended on all other QoS 1 messages.
+
+Note that publisher identity — previously carried as a `source` field in the payload — is encoded in the topic's `{publisher}` segment instead. See Section 5 for the rationale.
 
 ---
 
 ## 8. Message: lights
 
-**Topic:** `openpiste/{piste_id}/lights`
+**Topic:** `openpiste/{piste_id}/apparatus/lights`
 **QoS:** 1
 **Retained:** Yes
 
@@ -269,7 +273,6 @@ Light colour conventions apply across all weapons:
 ```json
 {
   "protocol": "OPP2",
-  "source":   "apparatus",
   "seq":      42,
   "ts":       1715539200123,
   "right": {
@@ -288,7 +291,6 @@ Light colour conventions apply across all weapons:
 | Field | Type | Description |
 |-------|------|-------------|
 | `protocol` | string | Always `"OPP2"` |
-| `source` | string | Message origin |
 | `seq` | integer | Global sequence counter |
 | `ts` | integer | Mandatory — timestamp of light change, see Section 22 |
 | `right.green` | boolean | Right fencer on-target light |
@@ -300,7 +302,7 @@ Light colour conventions apply across all weapons:
 
 ## 9. Message: clock
 
-**Topic:** `openpiste/{piste_id}/clock`
+**Topic:** `openpiste/{piste_id}/apparatus/clock`
 **QoS:** 0
 **Retained:** Yes
 
@@ -311,7 +313,6 @@ Published once per second while the stopwatch is running. Also published immedia
 ```json
 {
   "protocol": "OPP2",
-  "source":   "apparatus",
   "ts":       1715539200123,
   "running":  true,
   "time_ms":  89250,
@@ -324,7 +325,6 @@ Published once per second while the stopwatch is running. Also published immedia
 | Field | Type | Description |
 |-------|------|-------------|
 | `protocol` | string | Always `"OPP2"` |
-| `source` | string | Message origin |
 | `ts` | integer | Mandatory — timestamp of this clock publication, see Section 22 |
 | `running` | boolean | `true` if the stopwatch is currently running |
 | `time_ms` | integer | Current stopwatch value in milliseconds |
@@ -336,7 +336,7 @@ Note: `seq` is absent on QoS 0 messages.
 
 ## 10. Message: blade\_contact
 
-**Topic:** `openpiste/{piste_id}/blade_contact`
+**Topic:** `openpiste/{piste_id}/apparatus/blade_contact`
 **QoS:** 0
 **Retained:** No
 
@@ -351,7 +351,6 @@ QoS 0 is used because retransmission latency would degrade timestamp precision, 
 ```json
 {
   "protocol": "OPP2",
-  "source":   "apparatus",
   "ts":       1715539200089,
   "active":   true
 }
@@ -362,7 +361,6 @@ QoS 0 is used because retransmission latency would degrade timestamp precision, 
 | Field | Type | Description |
 |-------|------|-------------|
 | `protocol` | string | Always `"OPP2"` |
-| `source` | string | Message origin |
 | `ts` | integer | Mandatory — timestamp of contact event, see Section 22 |
 | `active` | boolean | `true` — blade contact detected; `false` — contact cleared |
 
@@ -372,18 +370,17 @@ Note: `seq` is absent on QoS 0 messages.
 
 ## 11. Message: score
 
-**Topic:** `openpiste/{piste_id}/score`
+**Topic:** `openpiste/{piste_id}/{publisher}/score`
 **QoS:** 1
 **Retained:** Yes
 
-Published on any change to scores, cards, or priority.
+Published on any change to scores, cards, or priority. The apparatus publishes under `apparatus/score`; competition management software correcting a score publishes under `software/score`. All subscribers see both; the publisher segment in the topic identifies the origin.
 
 ### Payload
 
 ```json
 {
   "protocol": "OPP2",
-  "source":   "apparatus",
   "seq":      43,
   "right": {
     "score":       8,
@@ -406,7 +403,6 @@ Published on any change to scores, cards, or priority.
 | Field | Type | Description |
 |-------|------|-------------|
 | `protocol` | string | Always `"OPP2"` |
-| `source` | string | Message origin |
 | `seq` | integer | Global sequence counter |
 | `right.score` | integer | Right fencer score |
 | `right.status` | string | Right fencer match status — see values below |
@@ -433,7 +429,7 @@ Published on any change to scores, cards, or priority.
 
 ## 12. Message: connection
 
-**Topic:** `openpiste/{piste_id}/connection`
+**Topic:** `openpiste/{piste_id}/apparatus/connection`
 **QoS:** 1
 **Retained:** Yes
 
@@ -444,7 +440,6 @@ Indicates whether the apparatus is currently connected to the broker. This topic
 ```json
 {
   "protocol": "OPP2",
-  "source":   "apparatus",
   "seq":      1,
   "online":   true,
   "device":   "OpenPiste-ESP32",
@@ -465,7 +460,6 @@ Indicates whether the apparatus is currently connected to the broker. This topic
 | Field | Type | Description |
 |-------|------|-------------|
 | `protocol` | string | Always `"OPP2"` (omitted in LWT payload) |
-| `source` | string | Message origin (omitted in LWT payload) |
 | `seq` | integer | Global sequence counter (omitted in LWT payload) |
 | `online` | boolean | `true` — apparatus connected; `false` — offline |
 | `device` | string | Device model or identifier (optional) |
@@ -475,7 +469,7 @@ Indicates whether the apparatus is currently connected to the broker. This topic
 
 ## 13. Message: state
 
-**Topic:** `openpiste/{piste_id}/state`
+**Topic:** `openpiste/{piste_id}/apparatus/state`
 **QoS:** 1
 **Retained:** Yes
 
@@ -486,7 +480,6 @@ Indicates the current operational state of the scoring apparatus. Published on e
 ```json
 {
   "protocol": "OPP2",
-  "source":   "apparatus",
   "seq":      44,
   "state":    "F"
 }
@@ -497,7 +490,6 @@ Indicates the current operational state of the scoring apparatus. Published on e
 | Field | Type | Description |
 |-------|------|-------------|
 | `protocol` | string | Always `"OPP2"` |
-| `source` | string | Message origin |
 | `seq` | integer | Global sequence counter |
 | `state` | string | Apparatus state — see values below |
 
@@ -515,7 +507,7 @@ Indicates the current operational state of the scoring apparatus. Published on e
 
 ## 14. Message: fencers
 
-**Topic:** `openpiste/{piste_id}/fencers`
+**Topic:** `openpiste/{piste_id}/software/fencers`
 **QoS:** 1
 **Retained:** Yes
 
@@ -526,7 +518,6 @@ Published when any participant identity information changes. In team competition
 ```json
 {
   "protocol": "OPP2",
-  "source":   "software",
   "seq":      45,
   "left": {
     "fencer": {
@@ -572,7 +563,6 @@ Published when any participant identity information changes. In team competition
 | Field | Type | Description |
 |-------|------|-------------|
 | `protocol` | string | Always `"OPP2"` |
-| `source` | string | Message origin — typically `"software"` |
 | `seq` | integer | Global sequence counter |
 | `left.fencer.id` | string | Left fencer identifier |
 | `left.fencer.name` | string | Left fencer name |
@@ -599,7 +589,7 @@ If a field is not available it is omitted. Receivers MUST handle missing fields 
 
 ## 15. Message: match
 
-**Topic:** `openpiste/{piste_id}/match`
+**Topic:** `openpiste/{piste_id}/software/match`
 **QoS:** 1
 **Retained:** Yes
 
@@ -610,7 +600,6 @@ Published when match or competition metadata changes, including round changes du
 ```json
 {
   "protocol":    "OPP2",
-  "source":      "software",
   "seq":         46,
   "weapon":      "E",
   "type":        "I",
@@ -629,7 +618,6 @@ Published when match or competition metadata changes, including round changes du
 | Field | Type | Description |
 |-------|------|-------------|
 | `protocol` | string | Always `"OPP2"` |
-| `source` | string | Message origin — typically `"software"` |
 | `seq` | integer | Global sequence counter |
 | `weapon` | string | `"F"` foil, `"E"` épée, `"S"` sabre |
 | `type` | string | `"I"` individual, `"T"` team |
@@ -656,7 +644,7 @@ Additional phase type values may be defined in future revisions without a protoc
 
 ## 16. Message: uw2f
 
-**Topic:** `openpiste/{piste_id}/uw2f`
+**Topic:** `openpiste/{piste_id}/apparatus/uw2f`
 **QoS:** 1
 **Retained:** Yes
 
@@ -667,7 +655,6 @@ Published on any change to the unwillingness-to-fight (passivity) timer or P-car
 ```json
 {
   "protocol": "OPP2",
-  "source":   "apparatus",
   "seq":      47,
   "time_ms":  60000,
   "time":     "1:00",
@@ -685,7 +672,6 @@ Published on any change to the unwillingness-to-fight (passivity) timer or P-car
 | Field | Type | Description |
 |-------|------|-------------|
 | `protocol` | string | Always `"OPP2"` |
-| `source` | string | Message origin |
 | `seq` | integer | Global sequence counter |
 | `time_ms` | integer | UW2F timer value in milliseconds, counting up from zero |
 | `time` | string | UW2F timer formatted as `"M:SS"` |
@@ -711,7 +697,7 @@ P-card semantics (which card type corresponds to which ordinal) are defined by t
 
 ## 17. Message: medical
 
-**Topic:** `openpiste/{piste_id}/medical`
+**Topic:** `openpiste/{piste_id}/apparatus/medical`
 **QoS:** 1
 **Retained:** Yes
 
@@ -722,7 +708,6 @@ Published when a medical timeout is granted and on every subsequent timer update
 ```json
 {
   "protocol":     "OPP2",
-  "source":       "apparatus",
   "seq":          48,
   "active":       true,
   "side":         "left",
@@ -737,7 +722,6 @@ Published when a medical timeout is granted and on every subsequent timer update
 ```json
 {
   "protocol": "OPP2",
-  "source":   "apparatus",
   "seq":      49,
   "active":   false,
   "side":     "left"
@@ -749,7 +733,6 @@ Published when a medical timeout is granted and on every subsequent timer update
 | Field | Type | Description |
 |-------|------|-------------|
 | `protocol` | string | Always `"OPP2"` |
-| `source` | string | Message origin |
 | `seq` | integer | Global sequence counter |
 | `active` | boolean | `true` — timeout in progress; `false` — timeout ended or cleared |
 | `side` | string | `"left"` or `"right"` — the fencer granted the timeout |
@@ -763,18 +746,17 @@ Timer resolution is 1 second. At least one of `remaining_ms` or `remaining` MUST
 
 ## 18. Message: video\_review
 
-**Topic:** `openpiste/{piste_id}/video_review`
+**Topic:** `openpiste/{piste_id}/{publisher}/video_review`
 **QoS:** 1
 **Retained:** Yes
 
-Published when a video review is requested or resolved. Carries both the current remaining call counts and the full call history for the bout.
+Published when a video review is requested or resolved. Carries both the current remaining call counts and the full call history for the bout. The apparatus publishes under `apparatus/video_review` when a fencer requests a review; competition management software publishes under `software/video_review` when resolving a call.
 
 ### Payload
 
 ```json
 {
   "protocol": "OPP2",
-  "source":   "apparatus",
   "seq":      50,
   "left": {
     "remaining": 1,
@@ -799,7 +781,6 @@ Published when a video review is requested or resolved. Carries both the current
 | Field | Type | Description |
 |-------|------|-------------|
 | `protocol` | string | Always `"OPP2"` |
-| `source` | string | Message origin |
 | `seq` | integer | Global sequence counter |
 | `left.remaining` | integer | Video review calls remaining for left fencer |
 | `left.calls` | array | History of all video review calls made by left fencer this bout |
@@ -825,18 +806,17 @@ These counts reflect current FIE rules and are subject to change. The apparatus 
 
 ## 19. Message: control
 
-**Topic:** `openpiste/{piste_id}/control`
+**Topic:** `openpiste/{piste_id}/{publisher}/control`
 **QoS:** 1
 **Retained:** No
 
-Published when a control event occurs. This topic is bidirectional — it carries commands from apparatus to software, from software to apparatus, and from remote controls to apparatus. A receiver that encounters an unknown command value SHOULD ignore it.
+Published when a control event occurs. This topic is bidirectional — it carries commands from apparatus to software, from software to apparatus, and from remote controls to apparatus. The publisher segment in the topic identifies the source: `apparatus/control`, `software/control`, or `remote/control`. A receiver that encounters an unknown command value SHOULD ignore it.
 
 ### Payload
 
 ```json
 {
   "protocol": "OPP2",
-  "source":   "apparatus",
   "seq":      51,
   "ts":       1715539200456,
   "command":  "MEDICAL",
@@ -850,7 +830,6 @@ Published when a control event occurs. This topic is bidirectional — it carrie
 | Field | Type | Description |
 |-------|------|-------------|
 | `protocol` | string | Always `"OPP2"` |
-| `source` | string | Message origin — `"apparatus"`, `"software"`, or `"remote"` |
 | `seq` | integer | Global sequence counter |
 | `ts` | integer | Mandatory — timestamp when command was issued, see Section 22 |
 | `command` | string | Command name — see defined values below |
@@ -859,22 +838,22 @@ Published when a control event occurs. This topic is bidirectional — it carrie
 
 ### Defined command values
 
-| Command | Direction | Description |
+| Command | Publisher | Description |
 |---------|-----------|-------------|
-| `"NEXT"` | Apparatus → Software | Request next match or round |
-| `"PREV"` | Apparatus → Software | Request previous match or round |
-| `"END"` | Apparatus → Software | Signal end of match or round, awaiting ACK |
-| `"MEDICAL"` | Apparatus → Software | Medical timeout granted; `side` and `duration` required |
-| `"RESERVE"` | Apparatus → Software | Reserve fencer introduction; `side` required |
-| `"VIDEO_REVIEW_REQUEST"` | Apparatus → Software | Fencer requests video review; `side` required |
-| `"ACK"` | Software → Apparatus | Approve end of match or round |
-| `"NAK"` | Software → Apparatus | Reject end of match or round |
-| `"VIDEO_REVIEW_GRANTED"` | Software → Apparatus | Video review call granted; `side` required |
-| `"VIDEO_REVIEW_DENIED"` | Software → Apparatus | Video review call denied; `side` required |
-| `"BEGIN"` | Remote → Apparatus | Start the bout |
-| `"HALT"` | Remote → Apparatus | Call halt |
-| `"RESET"` | Remote → Apparatus | Reset the apparatus |
-| `"VALIDATE"` | Remote → Apparatus | Confirm end of match |
+| `"NEXT"` | apparatus | Request next match or round |
+| `"PREV"` | apparatus | Request previous match or round |
+| `"END"` | apparatus | Signal end of match or round, awaiting ACK |
+| `"MEDICAL"` | apparatus | Medical timeout granted; `side` and `duration` required |
+| `"RESERVE"` | apparatus | Reserve fencer introduction; `side` required |
+| `"VIDEO_REVIEW_REQUEST"` | apparatus | Fencer requests video review; `side` required |
+| `"ACK"` | software | Approve end of match or round |
+| `"NAK"` | software | Reject end of match or round |
+| `"VIDEO_REVIEW_GRANTED"` | software | Video review call granted; `side` required |
+| `"VIDEO_REVIEW_DENIED"` | software | Video review call denied; `side` required |
+| `"BEGIN"` | remote | Start the bout |
+| `"HALT"` | remote | Call halt |
+| `"RESET"` | remote | Reset the apparatus |
+| `"VALIDATE"` | remote | Confirm end of match |
 
 Additional command values may be defined in future revisions without a protocol version change.
 
@@ -911,7 +890,7 @@ Using a single global counter means that no two messages from the same device wi
 
 ### 21.3 Detecting duplicates
 
-A consumer tracks the last seen `seq` value per producer (identified by piste ID and source). If a received message carries a `seq` value already seen from that producer, the message is a duplicate and SHOULD be discarded.
+A consumer tracks the last seen `seq` value per producer (identified by piste ID and publisher segment). If a received message carries a `seq` value already seen from that producer, the message is a duplicate and SHOULD be discarded.
 
 ### 21.4 Detecting a new session after reboot
 
@@ -1000,9 +979,9 @@ New fields may be added to any message in a minor revision without changing the 
 
 Removing or renaming existing fields, or changing field types, constitutes a breaking change and requires a new protocol identifier (e.g. `"OPP3"`).
 
-### 23.4 Adding command values, phase types, and source values
+### 23.4 Adding command values, phase types, and publisher values
 
-New values for `command`, `phase_type`, and `source` are not breaking changes. Receivers that encounter unknown values SHOULD ignore them.
+New values for `command`, `phase_type`, and the `{publisher}` topic segment are not breaking changes. Receivers that encounter unknown values SHOULD ignore them.
 
 ---
 
@@ -1013,6 +992,8 @@ New values for `command`, `phase_type`, and `source` are not breaking changes. R
 Security for Level 2 has not yet been formally specified. The following considerations apply and will be resolved in a future revision:
 
 **Asymmetric access model.** The appropriate model for most deployments is likely: subscribers (displays, monitors, video tools) may connect and subscribe without authentication on port 1883; publishers (apparatus, remote controls, competition software) SHOULD authenticate using MQTT username/password credentials over TLS on port 8883. This allows open read access while protecting the integrity of scoring data.
+
+**Publisher-scoped access control.** The topic structure maps directly onto a clean broker ACL model. Each publisher role is restricted to writing only within its own namespace: apparatus credentials permit publishing only to `openpiste/+/apparatus/#`; software credentials only to `openpiste/+/software/#`; remote credentials only to `openpiste/+/remote/#`. All authenticated clients may subscribe to `openpiste/#`. This prevents a misconfigured or compromised remote control from publishing score corrections, and prevents software from spoofing apparatus connection state.
 
 **Credential deployment.** For a club setup with a handful of devices, static credentials configured per device are acceptable. For a competition with many pistes and devices, a more automated credential management approach is needed. The operational burden of certificate and credential deployment at scale is a significant consideration and will influence the final recommendation.
 
