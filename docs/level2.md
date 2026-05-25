@@ -62,7 +62,8 @@ This is a working proposal, not a ratified standard. It is published in the hope
 24. [Timestamp conventions](#24-timestamp-conventions)
 25. [Versioning and compatibility](#25-versioning-and-compatibility)
 26. [Security](#26-security)
-27. [Open items](#27-open-items)
+27. [Cloud bridging and competition identity](#27-cloud-bridging-and-competition-identity)
+28. [Open items](#28-open-items)
 
 ---
 
@@ -72,7 +73,7 @@ Level 2 is the native JSON protocol of the OpenPiste platform. It is designed fr
 
 Level 2 is intended to be a genuinely open standard — any apparatus manufacturer, software developer, club, or federation can implement it without restriction. The protocol identifier `OPP2` and a separate `version` field appear in every message, allowing receivers to identify the protocol family and enforce compliance rules appropriate for the declared version.
 
-A JSON Schema for machine validation of all message types is maintained as a separate document in the OpenPiste repository. See `schemas/opp2/` at https://github.com/OpenPiste/protocol. *(Schema publication is a pending task — see Section 27.)*
+A JSON Schema for machine validation of all message types is maintained as a separate document in the OpenPiste repository. See `schemas/opp2/` at https://github.com/OpenPiste/protocol. *(Schema publication is a pending task — see Section 28.)*
 
 ---
 
@@ -1187,13 +1188,186 @@ A formal security specification will be added in a future revision.
 
 ---
 
-## 27. Open items
+## 27. Cloud bridging and competition identity
+
+### 27.0 Introduction
+
+A local MQTT broker is designed for one venue. It serves the apparatus, the displays, the remote controls, and any other devices physically present at the competition. It is fast, self-contained, and requires no internet connection. This is the right architecture for real-time scoring on the piste.
+
+But there are compelling reasons to make that data available beyond the venue:
+
+**Live results from anywhere.** Coaches in the warm-up area, team officials in the stands, remote spectators following online — all could benefit from live scoring data if it were accessible outside the venue network.
+
+**Federation ranking and results reporting.** National and international federations require competition results for ranking calculations, athlete licensing, and official records. Today this typically involves manual export from the CMS and upload to a federation portal after the competition. A cloud broker receiving live data from the venue could feed federation systems directly — results available the moment a match ends, without manual intervention. This applies at every level: club results to national federations, national competition results to continental confederations (EFC, Pan-American Confederation, etc.), and major event results to the FIE.
+
+**Video referee synchronisation.** A cloud-accessible timestamp stream allows video referee tools running on external infrastructure to synchronise overlays with the live feed without being on the local network.
+
+**Archiving and analytics.** Every bout, every touch, every card, every clock tick — published with millisecond timestamps — is a rich dataset for performance analysis, referee training, and rule development. Archiving this data to cloud storage requires relaying it from the local broker.
+
+**Multi-venue aggregation.** A national federation running events simultaneously at multiple venues could aggregate live results from all of them into a single dashboard, without requiring any coordination between venues.
+
+**Broadcasting and media.** A live results feed accessible via a standard MQTT subscription — or via a cloud-hosted web interface consuming it — gives broadcasters and media organisations a reliable data source without requiring venue access.
+
+Bridging is the mechanism that makes all of this possible without changing anything at the local level. A bridge is a piece of software that subscribes to the local broker and republishes the messages to a cloud broker, enriching the topic with enough context to make the data meaningful and discoverable outside the venue. The local apparatus, the CMS, the displays — none of them need to know the bridge exists.
+
+### 27.1 Local simplicity by design
+
+A local broker serves one venue. The apparatus knows only that it is on piste 17. It publishes to `openpiste/17/apparatus/lights`. It does not know or care whether that data is consumed locally, relayed to a cloud broker, or archived. This simplicity is intentional and preserved by design.
+
+Cloud connectivity is handled entirely by a **bridge** — a component that subscribes to the local broker and republishes to a cloud broker with an enriched topic prefix. No changes are required to the apparatus, the CMS, or any local subscriber.
+
+Importantly, this bridging capability is built directly into Mosquitto and most other standards-compliant MQTT brokers. No additional middleware or custom software is required to relay messages from a local broker to a cloud broker — it is a native feature, configurable in a few lines. This was an explicit reason for choosing MQTT as the transport for OPP2: the cloud relay capability comes for free with the technology, rather than requiring a bespoke integration layer.
+
+### 27.2 Cloud topic structure
+
+When relaying from a local broker to a cloud broker, the bridge prepends a structured prefix to every topic:
+
+```
+openpiste/{country}/{year}/{month}/{day}/{tournament_id}/{competition_id}/{piste_id}/{publisher}/{message_type}
+```
+
+| Segment | Description | Example |
+|---------|-------------|---------|
+| `openpiste` | Fixed platform prefix | — |
+| `{country}` | Host country — IOC 3-letter code | `BEL` |
+| `{year}` | Tournament start year — four digits | `2026` |
+| `{month}` | Tournament start month — two digits, zero-padded | `06` |
+| `{day}` | Tournament start day — two digits, zero-padded | `15` |
+| `{tournament_id}` | Machine-readable tournament identifier | `bel-nat-champ-2026` |
+| `{competition_id}` | Machine-readable competition identifier | `efj-eq` |
+| `{piste_id}` | Piste identifier, as used locally | `17` |
+| `{publisher}` | Publisher role, as used locally | `apparatus` |
+| `{message_type}` | Message type, as used locally | `lights` |
+
+So a local topic `openpiste/17/apparatus/lights` becomes:
+
+```
+openpiste/BEL/2026/06/15/bel-nat-champ-2026/efj-eq/17/apparatus/lights
+```
+
+on the cloud broker.
+
+### 27.3 Rationale for the topic structure
+
+**Global uniqueness without a global registry.** No single segment needs to be globally unique on its own. The combination of country, date, tournament identifier, and competition identifier creates global uniqueness through hierarchy — the same way a postal address works. `bel-nat-champ-2026/efj-eq` only needs to be unique within `BEL/2026/06/15/`, which is a very small namespace. A national federation can maintain its own list of competition identifiers without coordinating with any global authority.
+
+**The date is the tournament start date.** For multi-day events, all data lives under the start date regardless of which day a specific bout takes place. This keeps the topic path stable and predictable for the lifetime of the tournament.
+
+**Every segment is an independent filter dimension.** MQTT wildcard subscriptions match whole segments. By giving country, year, month, and day each their own segment, any combination can be subscribed to independently:
+
+```
+openpiste/#                               # everything, everywhere
+openpiste/BEL/#                           # everything in Belgium
+openpiste/+/2026/#                        # everything in 2026
+openpiste/+/2026/06/#                     # everything in June 2026
+openpiste/+/2026/06/15/#                  # everything on June 15th 2026
+openpiste/BEL/2026/06/15/#               # Belgium, June 15th 2026
+openpiste/+/+/+/+/bel-nat-champ-2026/#   # one tournament regardless of date
+openpiste/+/+/+/+/+/efj-eq/#             # all junior men's épée worldwide
+openpiste/+/+/+/+/+/+/17/#              # piste 17 at every venue in the world
+```
+
+Note: MQTT wildcards use `+` (single segment) and `#` (all remaining segments). The `*` character is not a valid MQTT wildcard.
+
+**Local topics are unchanged.** The bridge adds the prefix on relay. The apparatus, CMS, and local subscribers are entirely unaware of the cloud topic structure.
+
+**The `ext_id` field complements, not replaces, the topic hierarchy.** The topic hierarchy handles routing and discovery on the broker. The `ext_id` field in the identity message (Section 27.5) handles authoritative cross-system identity — linking a competition to the FIE database, a national federation's results system, or any other external registry. These are separate concerns handled by separate mechanisms.
+
+Identifiers SHOULD be lowercase, URL-safe, and use hyphens as word separators. They MUST NOT contain spaces, slashes, or wildcard characters (`#`, `+`).
+
+### 27.4 Multiple competitions at one venue
+
+A large championship runs multiple weapon and category events simultaneously on different piste groups. Each event is a separate `competition_id` under the same `tournament_id`. Piste numbers are assigned locally and may overlap between competitions — this is not a problem because the full topic path is unambiguous.
+
+```
+openpiste/ITA/2026/06/15/eur-champ-2026/efj-eq/17/apparatus/score   # junior men's épée, piste 17
+openpiste/ITA/2026/06/15/eur-champ-2026/esf-foil/17/apparatus/score # senior women's foil, piste 17
+```
+
+### 27.5 Competition identity message
+
+The bridge publishes a retained identity message to the cloud broker at the start of each competition. This serves as the discovery layer — a subscriber can watch `openpiste/+/+/+/+/+/+/identity` to find all currently live competitions on the cloud broker, or narrow the subscription to a specific country or date range.
+
+**Topic:** `openpiste/{country}/{year}/{month}/{day}/{tournament_id}/{competition_id}/identity`
+**QoS:** 1
+**Retained:** Yes
+
+```json
+{
+  "protocol": "OPP2",
+  "version":  "1.0",
+  "tournament": {
+    "id":         "eur-champ-2026",
+    "name":       "European Fencing Championships 2026",
+    "city":       "Genova",
+    "country":    "ITA",
+    "start_date": "2026-06-15",
+    "end_date":   "2026-06-22",
+    "organiser":  "EFC",
+    "ext_id":     "EFC-2026-007"
+  },
+  "competition": {
+    "id":       "efj-eq",
+    "name":     "Junior Men's Épée Individual",
+    "weapon":   "E",
+    "type":     "I",
+    "category": "Junior",
+    "gender":   "M"
+  }
+}
+```
+
+### 27.5 Identity message fields
+
+**Tournament fields:**
+
+| Field | Type | M/O | Description |
+|-------|------|-----|-------------|
+| `id` | string | M | Machine-readable tournament identifier, matching the topic segment |
+| `name` | string | M | Full human-readable tournament name |
+| `city` | string | M | Host city |
+| `country` | string | M | Host country — IOC 3-letter code |
+| `start_date` | string | M | Tournament start date as `"YYYY-MM-DD"` |
+| `end_date` | string | M | Tournament end date as `"YYYY-MM-DD"` |
+| `organiser` | string | O | Organising body (e.g. `"FIE"`, `"EFC"`, club name) |
+| `ext_id` | string | O | External identifier for linking to federation databases |
+
+**Competition fields:**
+
+| Field | Type | M/O | Description |
+|-------|------|-----|-------------|
+| `id` | string | M | Machine-readable competition identifier, matching the topic segment |
+| `name` | string | M | Full human-readable competition name |
+| `weapon` | string | M | `"F"` foil, `"E"` épée, `"S"` sabre |
+| `type` | string | M | `"I"` individual, `"T"` team |
+| `category` | string | O | Age category (e.g. `"Senior"`, `"Junior"`, `"U17"`) |
+| `gender` | string | O | `"M"` men, `"F"` women, `"X"` mixed |
+
+### 27.6 Bridge configuration and CMS integration
+
+> **Open item — input from CMS developers and competition organisers is actively sought.**
+
+The bridge requires two pieces of information to operate: the `tournament_id` and `competition_id`. How this information reaches the bridge is an open architectural question.
+
+**Option A — Manual bridge configuration.** The bridge operator manually enters the tournament and competition identifiers at setup. Simple and reliable, but requires human action and introduces a configuration step separate from the CMS.
+
+**Option B — CMS-driven configuration.** The CMS publishes competition metadata to a well-known local topic when a competition is loaded. A bridge-side component subscribes to this topic and automatically configures the cloud routing. This is the cleanest model — the CMS continues to do its job (managing competitions) without needing to know about MQTT or cloud infrastructure. However it requires the CMS to publish this metadata, which currently no CMS does.
+
+**Option C — Bridge monitors the local identity topic.** A simpler variant of Option B: the CMS or a middleware component publishes to `openpiste/identity` on the local broker. The bridge watches this topic and updates its prefix configuration automatically.
+
+The preferred long-term solution is Option B or C — keeping the CMS unaware of cloud infrastructure while enabling automatic configuration. The right answer depends on how CMS software is structured in practice. Feedback from CMS developers (EnGarde, Engarde, Fencing Time, national federation systems) and competition organisers who have deployed MQTT infrastructure is welcome at https://github.com/OpenPiste/protocol/issues.
+
+---
+
+## 28. Open items
 
 **Blade contact semantics.** The blade_contact message currently treats contact as a stateful on/off event. An alternative treats it as a momentary event — a single publish with no corresponding off message. The choice affects whether blade_contact should eventually become a retained message. This will be resolved based on feedback from video referee application developers.
 
 **ACK/NAK state machine.** The full state machine around the Ending state — particularly the exact behaviour when NAK is received mid-bout versus at the end of a team round — is not yet formally specified beyond what is covered in Section 21.
 
 **JSON Schema.** A machine-readable JSON Schema for all message types is planned as a separate document at `schemas/opp2/` in the OpenPiste repository. Not yet published.
+
+**Cloud bridge CMS integration.** How the bridge obtains tournament and competition identifiers from the CMS without requiring CMS-side MQTT awareness is not yet resolved. See Section 27.6.
 
 ---
 
