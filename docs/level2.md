@@ -609,9 +609,11 @@ Published by software when any participant identity information changes. In team
   "seq":      45,
   "left": {
     "fencer": {
-      "id":     "32",
-      "name":   "B. Panini",
-      "nation": "ITA"
+      "id":        "32",
+      "name":      "B. Panini",
+      "nation":    "ITA",
+      "club":      "Club Scherma Roma",
+      "club_abbr": "CSR"
     },
     "coach": {
       "id":     "c1",
@@ -621,9 +623,11 @@ Published by software when any participant identity information changes. In team
   },
   "right": {
     "fencer": {
-      "id":     "28",
-      "name":   "P. Martin",
-      "nation": "FRA"
+      "id":        "28",
+      "name":      "P. Martin",
+      "nation":    "FRA",
+      "club":      "Cercle d'Escrime de Paris",
+      "club_abbr": "CEP"
     },
     "coach": {
       "id":     "c2",
@@ -656,12 +660,16 @@ Published by software when any participant identity information changes. In team
 | `left.fencer.id` | string | M | Left fencer identifier |
 | `left.fencer.name` | string | M | Left fencer name |
 | `left.fencer.nation` | string | M | IOC 3-letter nation code |
+| `left.fencer.club` | string | O | Left fencer club name |
+| `left.fencer.club_abbr` | string | O | Left fencer club abbreviation — for display in space-constrained contexts |
 | `left.coach.id` | string | O | Left fencer coach identifier |
 | `left.coach.name` | string | O | Left fencer coach name |
 | `left.coach.nation` | string | O | Left fencer coach nation |
 | `right.fencer.id` | string | M | Right fencer identifier |
 | `right.fencer.name` | string | M | Right fencer name |
 | `right.fencer.nation` | string | M | IOC 3-letter nation code |
+| `right.fencer.club` | string | O | Right fencer club name |
+| `right.fencer.club_abbr` | string | O | Right fencer club abbreviation — for display in space-constrained contexts |
 | `right.coach.id` | string | O | Right fencer coach identifier |
 | `right.coach.name` | string | O | Right fencer coach name |
 | `right.coach.nation` | string | O | Right fencer coach nation |
