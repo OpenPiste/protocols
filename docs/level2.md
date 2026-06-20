@@ -89,9 +89,9 @@ A JSON Schema for machine validation of all message types is maintained as a sep
 
 **Timestamps on time-critical events.** The lights, clock, and blade contact messages carry a millisecond timestamp. This enables accurate synchronisation with video replay systems — a capability absent from both EFP1.1 and RS422-FPA. All timestamps are UTC. No local time, no timezone offsets, no daylight saving adjustments. See Section 26 for the encoding convention.
 
-**Idempotent event processing.** Every QoS 1 message carries a mandatory sequence counter (`seq`) allowing consumers to detect and discard duplicate deliveries. See Section 29.
+**Idempotent event processing.** Every QoS 1 message carries a mandatory sequence counter (`seq`) allowing consumers to detect and discard duplicate deliveries. See Section 25.
 
-**Publisher identity belongs in the topic, not the payload.** The publisher role — apparatus, software, or remote — is encoded in the MQTT topic, not in the message payload. This allows subscribers to filter by publisher at the broker level, without parsing any payload. It also enables clean broker-side access control: each publisher role can be restricted to its own topic namespace. See Section 5 for the topic structure and Section 26 for the security model this enables.
+**Publisher identity belongs in the topic, not the payload.** The publisher role — apparatus, software, or remote — is encoded in the MQTT topic, not in the message payload. This allows subscribers to filter by publisher at the broker level, without parsing any payload. It also enables clean broker-side access control: each publisher role can be restricted to its own topic namespace. See Section 5 for the topic structure and Section 28 for the security model this enables.
 
 **Topic is authoritative for piste identity and publisher role.** The piste identifier and publisher role are carried in the MQTT topic and are not duplicated in the payload. The topic is the single authoritative source of both.
 
@@ -150,7 +150,7 @@ The broker host SHOULD also run a local NTP server. This allows all devices on t
 
 When all devices synchronise to the same local NTP server, timestamps in Level 2 messages are comparable across apparatus, displays, and video tools — enabling accurate video synchronisation on a fully self-contained competition network.
 
-See Section 24 for the timestamp encoding convention, including the fallback behaviour when NTP is unavailable.
+See Section 26 for the timestamp encoding convention, including the fallback behaviour when NTP is unavailable.
 
 ### 4.4 QoS
 
@@ -225,7 +225,7 @@ openpiste/{piste_id}/{publisher}/{message_type}
 
 The `{piste_id}` and `{publisher}` segments in the topic are the **authoritative** sources of piste identity and publisher role respectively. Neither is duplicated in the payload. Consumers that need to store these values alongside the payload MUST extract them from the topic at the time of receipt.
 
-Encoding the publisher role in the topic allows subscribers to filter by publisher at the broker level with no payload parsing required. It also maps directly onto broker access control: each publisher role can be restricted to writing only within its own topic namespace (see Section 30).
+Encoding the publisher role in the topic allows subscribers to filter by publisher at the broker level with no payload parsing required. It also maps directly onto broker access control: each publisher role can be restricted to writing only within its own topic namespace (see Section 28).
 
 Useful subscription patterns:
 
@@ -272,7 +272,7 @@ Every Level 2 message contains the following common fields. They appear first in
 | `protocol` | string | Mandatory | Mandatory | Always `"OPP2"` |
 | `version` | string | Mandatory | Mandatory | Protocol version — e.g. `"1.0"`. See Section 27. |
 | `seq` | integer | Absent | Mandatory | Global sequence counter — see Section 25 |
-| `ts` | integer | Mandatory | Recommended | Timestamp — see Section 30 |
+| `ts` | integer | Mandatory | Recommended | Timestamp — see Section 26 |
 
 `ts` is mandatory on QoS 0 messages (clock, blade_contact) and on control messages. It is recommended on all other QoS 1 messages.
 
@@ -330,7 +330,7 @@ Indicates whether the scoring apparatus is currently connected to the broker. Th
 
 Indicates whether competition management software is currently connected to the broker and active for this piste. This is the OPP2 equivalent of the EFP1.1 HELLO message. The software publishes this message on connection; the broker publishes the LWT payload on unexpected disconnection.
 
-The apparatus watches this topic to determine whether a live CMS is present. When the apparatus sees `"online": true` after a reboot or network recovery, it knows a CMS is available and may publish a `NEXT` control command to request match data if its own state is not recoverable locally. See Section 29.
+The apparatus watches this topic to determine whether a live CMS is present. When the apparatus sees `"online": true` after a reboot or network recovery, it knows a CMS is available and may publish a `NEXT` control command to request match data if its own state is not recoverable locally. See Section 23.
 
 Unlike the EFP1.1 HELLO — which was a periodic heartbeat every 15 seconds and served to trigger a full INFO resend from the apparatus — the OPP2 `software/connection` message is published only on connection state change. The need for a periodic trigger is eliminated by the retained message mechanism: the broker always holds the current apparatus state and delivers it to any subscriber immediately on connection.
 
@@ -407,7 +407,7 @@ Light colour conventions apply across all weapons:
 | `protocol` | string | M | — | Always `"OPP2"` |
 | `version` | string | M | — | Protocol version |
 | `seq` | integer | M | — | Global sequence counter |
-| `ts` | integer | M | — | Timestamp of light change — see Section 30 |
+| `ts` | integer | M | — | Timestamp of light change — see Section 26 |
 | `right.green` | boolean | M | `false` | Right fencer on-target light |
 | `right.white` | boolean | M | `false` | Right fencer white (off-target / broken circuit) light |
 | `left.red` | boolean | M | `false` | Left fencer on-target light |
@@ -442,7 +442,7 @@ Published once per second while the stopwatch is running. Also published immedia
 |-------|------|-----|---------|-------------|
 | `protocol` | string | M | — | Always `"OPP2"` |
 | `version` | string | M | — | Protocol version |
-| `ts` | integer | M | — | Timestamp of this publication — see Section 30 |
+| `ts` | integer | M | — | Timestamp of this publication — see Section 26 |
 | `running` | boolean | M | `false` | `true` if the stopwatch is currently running |
 | `time_ms` | integer | M | `0` | Current stopwatch value in milliseconds |
 | `time` | string | M | `"0:00"` | Formatted as `"M:SS"` or `"M:SS.cc"`. Hundredths mandatory below 10 seconds. |
@@ -480,7 +480,7 @@ QoS 0 is used because retransmission latency would degrade timestamp precision, 
 |-------|------|-----|-------------|
 | `protocol` | string | M | Always `"OPP2"` |
 | `version` | string | M | Protocol version |
-| `ts` | integer | M | Timestamp of contact event — see Section 30 |
+| `ts` | integer | M | Timestamp of contact event — see Section 26 |
 | `active` | boolean | M | `true` — blade contact detected; `false` — contact cleared |
 
 Note: `seq` is absent on QoS 0 messages.
@@ -942,7 +942,7 @@ The score sheet subscribes to `apparatus/score`, `apparatus/lights`, and `appara
 | `protocol` | string | M | Always `"OPP2"` |
 | `version` | string | M | Protocol version |
 | `seq` | integer | M | Global sequence counter |
-| `ts` | integer | M | Timestamp of the annotation — see Section 30 |
+| `ts` | integer | M | Timestamp of the annotation — see Section 26 |
 | `event` | string | M | Event type — see defined values below |
 | `side` | string | O | `"left"` or `"right"` — for side-specific events |
 | `card` | string | O | Card type: `"yellow"`, `"red"`, `"black"` — for CARD_REASON events |
@@ -1020,7 +1020,7 @@ Published when a control event occurs. This topic is bidirectional — it carrie
 | `protocol` | string | M | Always `"OPP2"` |
 | `version` | string | M | Protocol version |
 | `seq` | integer | M | Global sequence counter |
-| `ts` | integer | M | Timestamp when command was issued — see Section 30 |
+| `ts` | integer | M | Timestamp when command was issued — see Section 26 |
 | `command` | string | M | Command name — see defined values below |
 | `side` | string | O | `"left"` or `"right"` — for side-specific commands |
 | `duration` | integer | O | Duration in seconds — for MEDICAL command only |
@@ -1052,7 +1052,7 @@ Additional command values may be defined in future revisions without a protocol 
 
 *The state machine described in this section is derived from EFP1.1 (Cyrano protocol, version 1.1, October 2019), Section 4, authored by J-F Nicaud and the Favero Company. It has been adapted to the OPP2 publish/subscribe model: direction is determined by the publisher segment in the topic hierarchy rather than by message type, and "sending" and "receiving" are replaced by "publishing" and "subscribing".*
 
-### 21.1 States
+### 23.1 States
 
 The apparatus operates in one of five states at all times. The current state is published to `apparatus/state` on every transition.
 
@@ -1064,11 +1064,11 @@ The apparatus operates in one of five states at all times. The current state is 
 | **Pause** (`"P"`) | Between periods. The stopwatch is running (counting down the inter-period break). |
 | **Ending** (`"E"`) | The apparatus has signalled the end of a match or round and is awaiting ACK or NAK from software. The apparatus remains in this state until it receives a response. |
 
-### 21.2 Active and Waiting
+### 23.2 Active and Waiting
 
 The four states Fencing, Halt, Pause, and Ending are collectively referred to as **Active**. The apparatus publishes all changes — score, lights, stopwatch, cards — while in Active state. While in Waiting state, the apparatus publishes only its basic state and any available match information.
 
-### 21.3 State transition table
+### 23.3 State transition table
 
 | Current state | Event | Apparatus behaviour | New state |
 |--------------|-------|--------------------|----|
@@ -1089,7 +1089,7 @@ The four states Fencing, Halt, Pause, and Ending are collectively referred to as
 - When in Active state, any change (score, lights, cards, clock) triggers immediate publication of the affected topic.
 - On receipt of a `software/fencers` or `software/match` message, the apparatus updates its display but does not change state or reset scores. This mirrors EFP1.1 DISP behaviour.
 
-### 21.4 Correct and incorrect end of match
+### 23.4 Correct and incorrect end of match
 
 The apparatus evaluates whether the end of a match is formally correct before publishing the END command. This evaluation applies to individual competitions; team round endings are always considered correct unless it is the final round.
 
@@ -1102,15 +1102,15 @@ The apparatus evaluates whether the end of a match is formally correct before pu
 
 When software responds with NAK, the apparatus returns to Halt state and SHOULD display an appropriate message to the operator (e.g. "END not accepted").
 
-### 21.5 Score publishing behaviour
+### 23.5 Score publishing behaviour
 
 The apparatus publishes `apparatus/score` on every score change and also when it first loads a match. When software sends a `software/match` message containing pre-existing scores (e.g. for team rounds after the first, or when restoring a previous match), the apparatus displays those scores immediately. The BEGIN command does not reset scores that were supplied via `software/match`.
 
-### 21.6 Clock publishing behaviour
+### 23.6 Clock publishing behaviour
 
 The apparatus publishes `apparatus/clock` once per second while the stopwatch is running, and immediately on any clock state change (start, stop, reset). More frequent publication is unnecessary and SHOULD be avoided — at peak competition load a broker may be serving many pistes simultaneously.
 
-### 21.7 Reserve fencer
+### 23.7 Reserve fencer
 
 When the referee introduces a reserve fencer, the apparatus publishes `apparatus/control` with `"command": "RESERVE"` and `"side": "left"` or `"right"`. This signal is valid only in team competitions when a reserve fencer has been declared and has not yet been used. Software responds by updating the fencer assignment for subsequent rounds via `software/fencers`.
 
@@ -1118,14 +1118,14 @@ When the referee introduces a reserve fencer, the apparatus publishes `apparatus
 
 ## 24. Field types and conventions
 
-### 22.1 JSON types
+### 24.1 JSON types
 
 | Type | JSON representation | Notes |
 |------|--------------------|----|
 | Boolean | `true` / `false` | Never `"0"` / `"1"` or string-encoded |
 | Integer | JSON number, no quotes | Scores, card counts, millisecond times, sequence counter |
 | String | JSON string | Identifiers, names, nation codes, formatted times |
-| Timestamp | JSON integer (64-bit) | See Section 24 for encoding convention |
+| Timestamp | JSON integer (64-bit) | See Section 26 for encoding convention |
 
 **Formatted time strings** use `"M:SS"` or `"M:SS.cc"` format. Hundredths are mandatory when time is below 10 seconds, consistent with EFP1.1 convention.
 
@@ -1143,7 +1143,7 @@ standard IOC 3-letter ASCII codes (uppercase A–Z only). Downstream systems
 exact ASCII code, and a non-standard value will silently break those
 integrations even though the JSON itself would parse correctly.
 
-### 22.2 Mandatory and optional fields
+### 24.2 Mandatory and optional fields
 
 Each field in the per-message tables is marked **M** (mandatory) or **O** (optional).
 
@@ -1151,7 +1151,7 @@ Each field in the per-message tables is marked **M** (mandatory) or **O** (optio
 
 **Optional fields** MAY be absent. When absent, the receiver MUST apply the default value shown in the table. Optional fields with no default (shown as —) have no meaningful default and their absence simply means the information is unavailable; receivers MUST handle this gracefully.
 
-### 22.3 Versioning and field obligations
+### 24.3 Versioning and field obligations
 
 Which fields are mandatory depends on the protocol version the sender declares in the `version` field. A receiver encountering a sender running an older version MUST apply defaults for any mandatory fields that are absent.
 
@@ -1164,32 +1164,32 @@ Which fields are mandatory depends on the protocol version the sender declares i
 
 ## 25. Sequence counter and idempotency
 
-### 23.1 Purpose
+### 25.1 Purpose
 
 MQTT QoS 1 guarantees at-least-once delivery, which means a message may be delivered more than once under certain network conditions. Consumers that perform irreversible actions on receipt — updating a score, issuing a command, recording a video review — must be able to detect and discard duplicate deliveries without processing them twice.
 
-### 23.2 The seq field
+### 25.2 The seq field
 
 Every QoS 1 message carries a mandatory `seq` field: an unsigned 32-bit integer that is incremented by the producer before every publish, regardless of topic. The counter is global — shared across all topics published by one device. It is not reset between topics, only on device reboot.
 
 Using a single global counter means that no two messages from the same device will share the same `seq` value within a session, satisfying per-topic uniqueness as a stronger property. It also allows consumers to reconstruct the cross-topic publish order if needed.
 
-### 23.3 Detecting duplicates
+### 25.3 Detecting duplicates
 
 A consumer tracks the last seen `seq` value per producer (identified by piste ID and publisher segment). If a received message carries a `seq` value already seen from that producer, the message is a duplicate and SHOULD be discarded.
 
-### 23.4 Detecting a new session after reboot
+### 25.4 Detecting a new session after reboot
 
 On device reboot the counter resets to a low value (typically 1). A consumer distinguishes a reboot from a wraparound by checking the timestamp:
 
 - If `seq` resets to a low value AND `ts` has advanced significantly → new session; reset the tracked counter
 - If `seq` wraps from near `0xFFFFFFFF` to near `0` AND `ts` is continuous → wraparound, not a reboot
 
-### 23.5 Counter wraparound
+### 25.5 Counter wraparound
 
 The 32-bit unsigned counter wraps around after approximately 4.3 billion publishes. At one publish per second this takes over 136 years. Wraparound is not a practical concern but consumers SHOULD handle it gracefully as described above.
 
-### 23.6 QoS 0 messages
+### 25.6 QoS 0 messages
 
 `seq` is absent on QoS 0 messages (clock, blade_contact). These messages are inherently lossy by design — the timestamp serves as the primary identity reference for the rare cases where ordering or deduplication matters.
 
@@ -1197,11 +1197,11 @@ The 32-bit unsigned counter wraps around after approximately 4.3 billion publish
 
 ## 26. Timestamp conventions
 
-### 24.1 UTC only
+### 26.1 UTC only
 
 All timestamps in Level 2 are UTC. No local time, no timezone offsets, no daylight saving adjustments. Unix epoch milliseconds are by definition UTC — this is not a configuration choice, it is inherent to the format. Implementations MUST use UTC time sources and MUST NOT apply local timezone conversions.
 
-### 24.2 Format
+### 26.2 Format
 
 All timestamps are 64-bit unsigned integers. The upper byte (bits 63–56) carries a clock source flag. The lower 56 bits carry the time value in milliseconds.
 
@@ -1210,7 +1210,7 @@ All timestamps are 64-bit unsigned integers. The upper byte (bits 63–56) carri
 | 63–56 | Clock source flag (upper byte) |
 | 55–0 | Time value in milliseconds (lower 56 bits) |
 
-### 24.3 Flag values
+### 26.3 Flag values
 
 | Upper byte | Meaning | Lower 56 bits |
 |------------|---------|---------------|
@@ -1218,11 +1218,11 @@ All timestamps are 64-bit unsigned integers. The upper byte (bits 63–56) carri
 | `0x01` | Session — boot relative | Milliseconds since device boot (`millis()`) |
 | `0x02`–`0xFF` | Reserved | — |
 
-### 24.4 NTP timestamps
+### 26.4 NTP timestamps
 
 Current Unix epoch milliseconds are approximately `1.7 × 10¹²` (`0x0000018E...` in hex). The upper byte is naturally `0x00` for the foreseeable future. NTP timestamps therefore require no manipulation at the apparatus — the raw epoch millisecond value is correct.
 
-### 24.5 Session timestamps
+### 26.5 Session timestamps
 
 When NTP is unavailable, the apparatus SHOULD use milliseconds since device boot with the upper byte set to `0x01`:
 
@@ -1236,7 +1236,7 @@ uint64_t ts = ((uint64_t)0x01 << 56) | (uint64_t)millis();
 
 Session timestamps are useful for relative timing within a session but cannot be compared across devices or to wall-clock time.
 
-### 24.6 Reading timestamps
+### 26.6 Reading timestamps
 
 ```cpp
 uint8_t  flag = (ts >> 56) & 0xFF;
@@ -1245,7 +1245,7 @@ uint64_t time = ts & 0x00FFFFFFFFFFFFFF;
 // flag == 0x01: time is milliseconds since device boot
 ```
 
-### 24.7 Video synchronisation
+### 26.7 Video synchronisation
 
 When using blade contact or lights timestamps to synchronise video overlays, both the apparatus and the video system SHOULD be synchronised to the same NTP server. Residual clock drift between devices is typically under 10ms on a well-managed local network.
 
@@ -1253,24 +1253,24 @@ When using blade contact or lights timestamps to synchronise video overlays, bot
 
 ## 27. Versioning and compatibility
 
-### 25.1 Protocol identifier and version
+### 27.1 Protocol identifier and version
 
 Every message carries two mandatory fields:
 
 - `"protocol": "OPP2"` — the protocol family identifier. Fixed for all Level 2 messages.
 - `"version": "1.0"` — the protocol version as a `"major.minor"` string.
 
-A receiver SHOULD check the `protocol` field and MAY ignore messages with an unrecognised identifier. The `version` field governs which fields are mandatory — see Section 30.2 and 22.3.
+A receiver SHOULD check the `protocol` field and MAY ignore messages with an unrecognised identifier. The `version` field governs which fields are mandatory — see Section 24.2 and 24.3.
 
-### 25.2 Minor revisions — adding fields
+### 27.2 Minor revisions — adding fields
 
 New fields may be added to any message in a minor revision (e.g. `"1.0"` → `"1.1"`). Receivers that know only the older version will encounter unknown fields, which JSON parsers silently ignore — existing receivers continue to operate correctly.
 
-### 25.3 Breaking changes
+### 27.3 Breaking changes
 
 Removing or renaming existing mandatory fields, or changing field types, constitutes a breaking change and requires a new protocol identifier (e.g. `"OPP3"`). The `version` field resets to `"1.0"` with each new protocol identifier.
 
-### 25.4 Adding enumerated values
+### 27.4 Adding enumerated values
 
 New values for `command`, `phase_type`, and the `{publisher}` topic segment are not breaking changes and do not require a version increment. Receivers that encounter unknown values SHOULD ignore them.
 
@@ -1306,7 +1306,7 @@ A formal security specification will be added in a future revision.
 
 ## 29. Cloud bridging and competition identity
 
-### 27.0 Introduction
+### 29.0 Introduction
 
 A local MQTT broker is designed for one venue. It serves the apparatus, the displays, the remote controls, and any other devices physically present at the competition. It is fast, self-contained, and requires no internet connection. This is the right architecture for real-time scoring on the piste.
 
@@ -1326,7 +1326,7 @@ But there are compelling reasons to make that data available beyond the venue:
 
 Bridging is the mechanism that makes all of this possible without changing anything at the local level. A bridge is a piece of software that subscribes to the local broker and republishes the messages to a cloud broker, enriching the topic with enough context to make the data meaningful and discoverable outside the venue. The local apparatus, the CMS, the displays — none of them need to know the bridge exists.
 
-### 27.1 Local simplicity by design
+### 29.1 Local simplicity by design
 
 A local broker serves one venue. The apparatus knows only that it is on piste 17. It publishes to `openpiste/17/apparatus/lights`. It does not know or care whether that data is consumed locally, relayed to a cloud broker, or archived. This simplicity is intentional and preserved by design.
 
@@ -1334,7 +1334,7 @@ Cloud connectivity is handled entirely by a **bridge** — a component that subs
 
 Importantly, this bridging capability is built directly into Mosquitto and most other standards-compliant MQTT brokers. No additional middleware or custom software is required to relay messages from a local broker to a cloud broker — it is a native feature, configurable in a few lines. This was an explicit reason for choosing MQTT as the transport for OPP2: the cloud relay capability comes for free with the technology, rather than requiring a bespoke integration layer.
 
-### 27.2 Cloud topic structure
+### 29.2 Cloud topic structure
 
 When relaying from a local broker to a cloud broker, the bridge prepends a structured prefix to every topic:
 
@@ -1363,7 +1363,7 @@ openpiste/BEL/2026/06/15/bel-nat-champ-2026/efj-eq/17/apparatus/lights
 
 on the cloud broker.
 
-### 27.3 Rationale for the topic structure
+### 29.3 Rationale for the topic structure
 
 **Global uniqueness without a global registry.** No single segment needs to be globally unique on its own. The combination of country, date, tournament identifier, and competition identifier creates global uniqueness through hierarchy — the same way a postal address works. `bel-nat-champ-2026/efj-eq` only needs to be unique within `BEL/2026/06/15/`, which is a very small namespace. A national federation can maintain its own list of competition identifiers without coordinating with any global authority.
 
@@ -1391,7 +1391,7 @@ Note: MQTT wildcards use `+` (single segment) and `#` (all remaining segments). 
 
 Identifiers SHOULD be lowercase, URL-safe, and use hyphens as word separators. They MUST NOT contain spaces, slashes, or wildcard characters (`#`, `+`).
 
-### 27.4 Multiple competitions at one venue
+### 29.4 Multiple competitions at one venue
 
 A large championship runs multiple weapon and category events simultaneously on different piste groups. Each event is a separate `competition_id` under the same `tournament_id`. Piste numbers are assigned locally and may overlap between competitions — this is not a problem because the full topic path is unambiguous.
 
@@ -1400,7 +1400,7 @@ openpiste/ITA/2026/06/15/eur-champ-2026/efj-eq/17/apparatus/score   # junior men
 openpiste/ITA/2026/06/15/eur-champ-2026/esf-foil/17/apparatus/score # senior women's foil, piste 17
 ```
 
-### 27.5 Competition identity message
+### 29.5 Competition identity message
 
 The bridge publishes a retained identity message to the cloud broker at the start of each competition. This serves as the discovery layer — a subscriber can watch `openpiste/+/+/+/+/+/+/identity` to find all currently live competitions on the cloud broker, or narrow the subscription to a specific country or date range.
 
@@ -1433,7 +1433,7 @@ The bridge publishes a retained identity message to the cloud broker at the star
 }
 ```
 
-### 27.5 Identity message fields
+### 29.6 Identity message fields
 
 **Tournament fields:**
 
@@ -1459,7 +1459,7 @@ The bridge publishes a retained identity message to the cloud broker at the star
 | `category` | string | O | Age category (e.g. `"Senior"`, `"Junior"`, `"U17"`) |
 | `gender` | string | O | `"M"` men, `"F"` women, `"X"` mixed |
 
-### 27.6 Bridge configuration and CMS integration
+### 29.7 Bridge configuration and CMS integration
 
 > **Open item — input from CMS developers and competition organisers is actively sought.**
 
@@ -1483,7 +1483,7 @@ The preferred long-term solution is Option B or C — keeping the CMS unaware of
 
 **JSON Schema.** A machine-readable JSON Schema for all message types is planned as a separate document at `schemas/opp2/` in the OpenPiste repository. Not yet published.
 
-**Cloud bridge CMS integration.** How the bridge obtains tournament and competition identifiers from the CMS without requiring CMS-side MQTT awareness is not yet resolved. See Section 29.6.
+**Cloud bridge CMS integration.** How the bridge obtains tournament and competition identifiers from the CMS without requiring CMS-side MQTT awareness is not yet resolved. See Section 29.7.
 
 ---
 
