@@ -1131,6 +1131,18 @@ When the referee introduces a reserve fencer, the apparatus publishes `apparatus
 
 **Nation codes** use IOC 3-letter codes (e.g. `"FRA"`, `"GBR"`, `"ITA"`).
 
+**String encoding.** All string fields are UTF-8 encoded JSON strings, per
+RFC 8259. OPP2 natively supports non-ASCII characters in `name` fields —
+diacritics (e.g. "François", "Łukasz") and non-Latin scripts (Cyrillic,
+Chinese, etc.) are valid and have been confirmed working in practice with
+the reference ArduinoJson implementation.
+
+The `nation` field is the one exception: it MUST remain restricted to
+standard IOC 3-letter ASCII codes (uppercase A–Z only). Downstream systems
+— flag icon lookups, results databases, broadcast graphics — key off the
+exact ASCII code, and a non-standard value will silently break those
+integrations even though the JSON itself would parse correctly.
+
 ### 22.2 Mandatory and optional fields
 
 Each field in the per-message tables is marked **M** (mandatory) or **O** (optional).
