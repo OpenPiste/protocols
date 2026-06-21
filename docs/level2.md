@@ -52,20 +52,22 @@ This is a working proposal, not a ratified standard. It is published in the hope
 14. [Message: state](#14-message-state)
 15. [Message: fencers](#15-message-fencers)
 16. [Message: match](#16-message-match)
-17. [Message: uw2f](#17-message-uw2f)
-18. [Message: medical](#18-message-medical)
-19. [Message: video\_review](#19-message-video_review)
-20. [Message: scoresheet/event](#20-message-scoresheetevent)
-21. [Message: var/connection](#21-message-varconnection)
-22. [Message: control](#22-message-control)
-23. [Apparatus state machine](#23-apparatus-state-machine)
-24. [Field types and conventions](#24-field-types-and-conventions)
-25. [Sequence counter and idempotency](#25-sequence-counter-and-idempotency)
-26. [Timestamp conventions](#26-timestamp-conventions)
-27. [Versioning and compatibility](#27-versioning-and-compatibility)
-28. [Security](#28-security)
-29. [Cloud bridging and competition identity](#29-cloud-bridging-and-competition-identity)
-30. [Open items](#30-open-items)
+17. [Message: software/record](#17-message-softwarerecord)
+18. [Message: scoresheet/record](#18-message-scoresheetrecord)
+19. [Message: uw2f](#19-message-uw2f)
+20. [Message: medical](#20-message-medical)
+21. [Message: video\_review](#21-message-video_review)
+22. [Message: scoresheet/event](#22-message-scoresheetevent)
+23. [Message: var/connection](#23-message-varconnection)
+24. [Message: control](#24-message-control)
+25. [Apparatus state machine](#25-apparatus-state-machine)
+26. [Field types and conventions](#26-field-types-and-conventions)
+27. [Sequence counter and idempotency](#27-sequence-counter-and-idempotency)
+28. [Timestamp conventions](#28-timestamp-conventions)
+29. [Versioning and compatibility](#29-versioning-and-compatibility)
+30. [Security](#30-security)
+31. [Cloud bridging and competition identity](#31-cloud-bridging-and-competition-identity)
+32. [Open items](#32-open-items)
 
 ---
 
@@ -75,7 +77,7 @@ Level 2 is the native JSON protocol of the OpenPiste platform. It is designed fr
 
 Level 2 is intended to be a genuinely open standard — any apparatus manufacturer, software developer, club, or federation can implement it without restriction. The protocol identifier `OPP2` and a separate `version` field appear in every message, allowing receivers to identify the protocol family and enforce compliance rules appropriate for the declared version.
 
-A JSON Schema for machine validation of all message types is maintained as a separate document in the OpenPiste repository. See `schemas/opp2/` at https://github.com/OpenPiste/protocol. *(Schema publication is a pending task — see Section 30.)*
+A JSON Schema for machine validation of all message types is maintained as a separate document in the OpenPiste repository. See `schemas/opp2/` at https://github.com/OpenPiste/protocol. *(Schema publication is a pending task — see Section 32.)*
 
 ---
 
@@ -85,13 +87,13 @@ A JSON Schema for machine validation of all message types is maintained as a sep
 
 **Purpose-specific messages.** Each message type carries only the data relevant to its purpose. A scoreboard that only needs lights and scores does not need to parse fencer names or competition metadata. A video tool that only needs blade contact timestamps does not need to process clock ticks.
 
-**The broker is the single source of truth.** All state-bearing topics use retained messages. Any subscriber connecting at any point during a bout immediately receives the current state of every topic without waiting for the next publish cycle. No periodic heartbeat resends are needed.
+**The broker is the single source of truth.** All state-bearing topics use retained messages. Any subscriber connecting at any point during a bout immediately receives the current state of every topic without waiting for the next publish cycle. No periodic heartbeat resends are needed. A single broker is also a single point of failure — this is a well-understood property of MQTT deployments, and the ecosystem offers proven options for resilience at every scale. See Section 4.1.
 
-**Timestamps on time-critical events.** The lights, clock, and blade contact messages carry a millisecond timestamp. This enables accurate synchronisation with video replay systems — a capability absent from both EFP1.1 and RS422-FPA. All timestamps are UTC. No local time, no timezone offsets, no daylight saving adjustments. See Section 26 for the encoding convention.
+**Timestamps on time-critical events.** The lights, clock, and blade contact messages carry a millisecond timestamp. This enables accurate synchronisation with video replay systems — a capability absent from both EFP1.1 and RS422-FPA. All timestamps are UTC. No local time, no timezone offsets, no daylight saving adjustments. See Section 28 for the encoding convention.
 
-**Idempotent event processing.** Every QoS 1 message carries a mandatory sequence counter (`seq`) allowing consumers to detect and discard duplicate deliveries. See Section 25.
+**Idempotent event processing.** Every QoS 1 message carries a mandatory sequence counter (`seq`) allowing consumers to detect and discard duplicate deliveries. See Section 27.
 
-**Publisher identity belongs in the topic, not the payload.** The publisher role — apparatus, software, or remote — is encoded in the MQTT topic, not in the message payload. This allows subscribers to filter by publisher at the broker level, without parsing any payload. It also enables clean broker-side access control: each publisher role can be restricted to its own topic namespace. See Section 5 for the topic structure and Section 28 for the security model this enables.
+**Publisher identity belongs in the topic, not the payload.** The publisher role — apparatus, software, or remote — is encoded in the MQTT topic, not in the message payload. This allows subscribers to filter by publisher at the broker level, without parsing any payload. It also enables clean broker-side access control: each publisher role can be restricted to its own topic namespace. See Section 5 for the topic structure and Section 30 for the security model this enables.
 
 **Topic is authoritative for piste identity and publisher role.** The piste identifier and publisher role are carried in the MQTT topic and are not duplicated in the payload. The topic is the single authoritative source of both.
 
@@ -105,7 +107,7 @@ A JSON Schema for machine validation of all message types is maintained as a sep
 
 Level 2 draws on two existing protocols for its design:
 
-**EFP1.1 (Cyrano)** provides the field semantics: state values, weapon codes, priority values, card counts, fencer status codes. These are preserved in Level 2 where they make sense, so developers familiar with EFP1.1 will recognise the values. The apparatus state machine defined in Section 23 is derived from EFP1.1 Section 4, adapted to the MQTT publish/subscribe model.
+**EFP1.1 (Cyrano)** provides the field semantics: state values, weapon codes, priority values, card counts, fencer status codes. These are preserved in Level 2 where they make sense, so developers familiar with EFP1.1 will recognise the values. The apparatus state machine defined in Section 25 is derived from EFP1.1 Section 4, adapted to the MQTT publish/subscribe model.
 
 **RS422-FPA** (version 3.04a, 2019) provides the architectural inspiration for typed messages. RS422-FPA demonstrated that splitting scoring data into purpose-specific messages with different transmission priorities is practical and well-understood in the fencing community. In Level 2, MQTT topics replace the RS422 serial bus, the broker's retained message mechanism replaces RS422-FPA's periodic resend strategy, and QoS levels replace RS422-FPA's explicit message priority ordering.
 
@@ -132,6 +134,18 @@ Level 2 draws on two existing protocols for its design:
 
 Any MQTT 3.1.1 compliant broker. Mosquitto is recommended for club and competition use — it is open source, lightweight, and runs on a laptop or Raspberry Pi.
 
+**Broker resilience.** Making the broker the single source of truth means that broker availability is important. This is a well-understood problem in MQTT deployments, and the ecosystem offers proven options at every scale. Implementers should choose the option appropriate for their context:
+
+- **Persistent storage (all scales).** Any broker can be configured to persist retained messages and QoS 1 queues to disk. After a restart — whether planned or due to a crash — all retained state is restored immediately. For a competition on a dedicated host, a broker restart typically takes under a second and is transparent to connected clients, which reconnect automatically.
+
+- **Active-passive failover (medium scale).** A standby broker instance on a second host, with shared or replicated persistent storage, can take over within seconds if the primary fails. Standard MQTT client libraries handle reconnection and session resumption automatically, so no changes are needed in any OPP2 device or software.
+
+- **Native broker clustering (large scale).** Brokers such as EMQX, HiveMQ, and VerneMQ support horizontal clustering — multiple broker nodes share load and state, with no single point of failure. These are appropriate for national or international championships where infrastructure investment is justified.
+
+- **Protocol-level resilience.** Even without infrastructure redundancy, the OPP2 protocol is designed to recover gracefully from a broker outage. The scoring apparatus maintains its own local state and continues to function during a brief outage. On reconnect, it republishes all retained topics (Section 25.3). The CMS republishes `software/fencers`, `software/match`, and `software/record` on reconnect. QoS 1 ensures that messages queued during the outage are delivered once connectivity is restored. A brief broker interruption mid-bout is an operational inconvenience, not a data loss event.
+
+For most club and regional competition deployments, persistent storage on a single broker host — ideally with a UPS — provides sufficient resilience. Clustering is warranted for major international events where infrastructure investment matches the stakes.
+
 ### 4.2 Broker discovery
 
 For club and small competition use, the broker host SHOULD be made discoverable via mDNS under the hostname:
@@ -150,14 +164,14 @@ The broker host SHOULD also run a local NTP server. This allows all devices on t
 
 When all devices synchronise to the same local NTP server, timestamps in Level 2 messages are comparable across apparatus, displays, and video tools — enabling accurate video synchronisation on a fully self-contained competition network.
 
-See Section 26 for the timestamp encoding convention, including the fallback behaviour when NTP is unavailable.
+See Section 28 for the timestamp encoding convention, including the fallback behaviour when NTP is unavailable.
 
 ### 4.4 QoS
 
 | QoS | Applied to | Rationale |
 |-----|-----------|-----------|
 | 0 (at most once) | clock, blade_contact | High frequency or latency-critical. A missed clock tick self-corrects within one second. Blade contact retransmission latency would degrade timestamp precision for video sync. |
-| 1 (at least once) | all other topics | State changes and commands that must not be silently lost. QoS 1 may deliver duplicates — use the `seq` field to detect them (Section 25). |
+| 1 (at least once) | all other topics | State changes and commands that must not be silently lost. QoS 1 may deliver duplicates — use the `seq` field to detect them (Section 27). |
 
 ### 4.5 Retained messages
 
@@ -176,6 +190,10 @@ Connection recovery follows this hierarchy:
 
 **control** is not retained because commands are one-shot. A late subscriber must not act on a BEGIN or NEXT command that was issued before it connected.
 
+**software/record and scoresheet/record** are **retained**. Both are consumed by display components — scoresheets, monitors, scoreboards — that benefit from immediate delivery of the current state on connect. Unlike `fencers` and `match`, neither targets the scoring apparatus, so there is no risk of a stale retained message triggering incorrect apparatus behaviour. `software/record` is retained because display components connecting mid-slot need the full bout context immediately, without waiting for the next bout transition. `scoresheet/record` is retained because the broker serves as the scoresheet's persistent annotation memory, surviving reconnects, reboots, and piste transfers.
+
+**scoresheet/event** is **not retained**. It is a per-event notification, not a state description. A retained event message would deliver a single annotation to late subscribers with no preceding context — misleading rather than helpful. The full annotation history is always available in `scoresheet/record`.
+
 ### 4.6 Last Will and Testament
 
 Both the apparatus and competition management software MUST configure a Last Will and Testament (LWT) message when connecting to the broker. The LWT is set in the MQTT CONNECT packet and is published automatically by the broker on unexpected disconnection.
@@ -190,7 +208,7 @@ Both the apparatus and competition management software MUST configure a Last Wil
 - **Payload:** `{"online": false}`
 - **QoS:** 1 — **Retain:** true
 
-The apparatus watches `openpiste/{piste_id}/software/connection` to determine whether a live CMS is present. See Section 23 for how this affects apparatus behaviour.
+The apparatus watches `openpiste/{piste_id}/software/connection` to determine whether a live CMS is present. See Section 25 for how this affects apparatus behaviour.
 
 ### 4.7 Port
 
@@ -225,7 +243,7 @@ openpiste/{piste_id}/{publisher}/{message_type}
 
 The `{piste_id}` and `{publisher}` segments in the topic are the **authoritative** sources of piste identity and publisher role respectively. Neither is duplicated in the payload. Consumers that need to store these values alongside the payload MUST extract them from the topic at the time of receipt.
 
-Encoding the publisher role in the topic allows subscribers to filter by publisher at the broker level with no payload parsing required. It also maps directly onto broker access control: each publisher role can be restricted to writing only within its own topic namespace (see Section 28).
+Encoding the publisher role in the topic allows subscribers to filter by publisher at the broker level with no payload parsing required. It also maps directly onto broker access control: each publisher role can be restricted to writing only within its own topic namespace (see Section 30).
 
 Useful subscription patterns:
 
@@ -255,11 +273,13 @@ openpiste/+/software/connection       # software connection status from all pist
 | `apparatus/state` | apparatus | 1 | Yes | On apparatus state change |
 | `software/fencers` | software | 1 | No | On fencer, coach, or referee identity change |
 | `software/match` | software | 1 | No | On match or competition metadata change |
+| `software/record` | software | 1 | Yes | On slot assignment, bout confirmation, or piste transfer |
 | `apparatus/uw2f` | apparatus | 1 | Yes | On UW2F timer or P-card change |
 | `apparatus/medical` | apparatus | 1 | Yes | On medical timeout event or timer update |
 | `apparatus/video_review` or `var/video_review` | apparatus or var | 1 | Yes | On video review request or resolution |
 | `apparatus/control`, `software/control`, `remote/control`, `var/control`, or `scoresheet/control` | apparatus, software, remote, var, or scoresheet | 1 | No | On remote control event |
-| `scoresheet/event` | scoresheet | 1 | Yes | On card reason, reserve, or other table official annotation |
+| `scoresheet/event` | scoresheet | 1 | No | On each new table official annotation (fire-and-forget; see `scoresheet/record` for accumulated state) |
+| `scoresheet/record` | scoresheet | 1 | Yes | Accumulated annotation log for the current slot; updated after each new annotation |
 
 ---
 
@@ -270,9 +290,9 @@ Every Level 2 message contains the following common fields. They appear first in
 | Field | Type | QoS 0 | QoS 1 | Description |
 |-------|------|-------|-------|-------------|
 | `protocol` | string | Mandatory | Mandatory | Always `"OPP2"` |
-| `version` | string | Mandatory | Mandatory | Protocol version — e.g. `"1.0"`. See Section 27. |
-| `seq` | integer | Absent | Mandatory | Global sequence counter — see Section 25 |
-| `ts` | integer | Mandatory | Recommended | Timestamp — see Section 26 |
+| `version` | string | Mandatory | Mandatory | Protocol version — e.g. `"1.0"`. See Section 29. |
+| `seq` | integer | Absent | Mandatory | Global sequence counter — see Section 27 |
+| `ts` | integer | Mandatory | Recommended | Timestamp — see Section 28 |
 
 `ts` is mandatory on QoS 0 messages (clock, blade_contact) and on control messages. It is recommended on all other QoS 1 messages.
 
@@ -330,7 +350,7 @@ Indicates whether the scoring apparatus is currently connected to the broker. Th
 
 Indicates whether competition management software is currently connected to the broker and active for this piste. This is the OPP2 equivalent of the EFP1.1 HELLO message. The software publishes this message on connection; the broker publishes the LWT payload on unexpected disconnection.
 
-The apparatus watches this topic to determine whether a live CMS is present. When the apparatus sees `"online": true` after a reboot or network recovery, it knows a CMS is available and may publish a `NEXT` control command to request match data if its own state is not recoverable locally. See Section 23.
+The apparatus watches this topic to determine whether a live CMS is present. When the apparatus sees `"online": true` after a reboot or network recovery, it knows a CMS is available and may publish a `NEXT` control command to request match data if its own state is not recoverable locally. See Section 25.
 
 Unlike the EFP1.1 HELLO — which was a periodic heartbeat every 15 seconds and served to trigger a full INFO resend from the apparatus — the OPP2 `software/connection` message is published only on connection state change. The need for a periodic trigger is eliminated by the retained message mechanism: the broker always holds the current apparatus state and delivers it to any subscriber immediately on connection.
 
@@ -407,7 +427,7 @@ Light colour conventions apply across all weapons:
 | `protocol` | string | M | — | Always `"OPP2"` |
 | `version` | string | M | — | Protocol version |
 | `seq` | integer | M | — | Global sequence counter |
-| `ts` | integer | M | — | Timestamp of light change — see Section 26 |
+| `ts` | integer | M | — | Timestamp of light change — see Section 28 |
 | `right.green` | boolean | M | `false` | Right fencer on-target light |
 | `right.white` | boolean | M | `false` | Right fencer white (off-target / broken circuit) light |
 | `left.red` | boolean | M | `false` | Left fencer on-target light |
@@ -442,7 +462,7 @@ Published once per second while the stopwatch is running. Also published immedia
 |-------|------|-----|---------|-------------|
 | `protocol` | string | M | — | Always `"OPP2"` |
 | `version` | string | M | — | Protocol version |
-| `ts` | integer | M | — | Timestamp of this publication — see Section 26 |
+| `ts` | integer | M | — | Timestamp of this publication — see Section 28 |
 | `running` | boolean | M | `false` | `true` if the stopwatch is currently running |
 | `time_ms` | integer | M | `0` | Current stopwatch value in milliseconds |
 | `time` | string | M | `"0:00"` | Formatted as `"M:SS"` or `"M:SS.cc"`. Hundredths mandatory below 10 seconds. |
@@ -461,7 +481,7 @@ Published on blade contact events. The primary purpose of this message is to pro
 
 QoS 0 is used because retransmission latency would degrade timestamp precision, which is the primary value of this message.
 
-> **Note:** The full semantics of this message are not yet finalised — see Section 30.
+> **Note:** The full semantics of this message are not yet finalised — see Section 32.
 
 ### Payload
 
@@ -480,7 +500,7 @@ QoS 0 is used because retransmission latency would degrade timestamp precision, 
 |-------|------|-----|-------------|
 | `protocol` | string | M | Always `"OPP2"` |
 | `version` | string | M | Protocol version |
-| `ts` | integer | M | Timestamp of contact event — see Section 26 |
+| `ts` | integer | M | Timestamp of contact event — see Section 28 |
 | `active` | boolean | M | `true` — blade contact detected; `false` — contact cleared |
 
 Note: `seq` is absent on QoS 0 messages.
@@ -558,7 +578,7 @@ Published on any change to scores, cards, or priority. The apparatus publishes u
 **QoS:** 1
 **Retained:** Yes
 
-Indicates the current operational state of the scoring apparatus. Published on every state transition. See Section 23 for the full state machine.
+Indicates the current operational state of the scoring apparatus. Published on every state transition. See Section 25 for the full state machine.
 
 ### Payload
 
@@ -741,7 +761,173 @@ Additional phase type values may be defined in future revisions without a protoc
 
 ---
 
-## 17. Message: uw2f
+## 17. Message: software/record
+
+**Topic:** `openpiste/{piste_id}/software/record`
+**QoS:** 1
+**Retained:** Yes
+
+Published by the competition management software to describe the full context of the current piste assignment: the ordered list of participants, the list of bouts with their identities and results so far, and the `slot_id` that ties this record to the scoresheet's annotation log.
+
+A *slot* is the unit of work assigned to a piste for a given session — a pool round or a range of DE bouts. `software/record` is published when a slot is first assigned (bouts listed, no results yet), updated after each bout is confirmed (ACK received), and republished in full on a piste transfer.
+
+Unlike `software/fencers` and `software/match` — which target the scoring apparatus and describe only the active bout — `software/record` targets display components (scoresheets, scoreboards, monitors) and describes the entire slot. The apparatus does not subscribe to this topic.
+
+**Retained rationale:** `software/fencers` and `software/match` are not retained because a stale assignment could mislead the apparatus on reconnect (see Section 4.5). `software/record` does not carry this risk — display components can render the last-known state immediately and update incrementally on each new message. Retained delivery means a scoresheet or monitor connecting mid-slot receives the full slot context without waiting for the next bout transition.
+
+### Payload
+
+```json
+{
+  "protocol":    "OPP2",
+  "version":     "1.0",
+  "seq":         53,
+  "slot_id":     "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "phase_type":  "pool",
+  "label":       "Pool A",
+  "active_bout": 3,
+  "participants": [
+    { "position": 1, "id": "32", "name": "B. Panini", "nation": "ITA", "club_abbr": "CSR" },
+    { "position": 2, "id": "28", "name": "P. Martin", "nation": "FRA", "club_abbr": "CEP" },
+    { "position": 3, "id": "15", "name": "A. Koch",   "nation": "GER", "club_abbr": "BFC" }
+  ],
+  "bouts": [
+    {
+      "id": 1,
+      "left":   { "id": "32", "name": "B. Panini", "nation": "ITA" },
+      "right":  { "id": "28", "name": "P. Martin", "nation": "FRA" },
+      "result": { "left_score": 5, "right_score": 3, "left_status": "V", "right_status": "D" }
+    },
+    {
+      "id": 2,
+      "left":   { "id": "15", "name": "A. Koch",   "nation": "GER" },
+      "right":  { "id": "32", "name": "B. Panini", "nation": "ITA" },
+      "result": null
+    },
+    {
+      "id": 3,
+      "left":   { "id": "28", "name": "P. Martin", "nation": "FRA" },
+      "right":  { "id": "15", "name": "A. Koch",   "nation": "GER" },
+      "result": null
+    }
+  ]
+}
+```
+
+### Fields
+
+| Field | Type | M/O | Default | Description |
+|-------|------|-----|---------|-------------|
+| `protocol` | string | M | — | Always `"OPP2"` |
+| `version` | string | M | — | Protocol version |
+| `seq` | integer | M | — | Global sequence counter |
+| `slot_id` | string | M | — | Opaque slot identifier generated by the CMS when the slot is assigned to a piste. Unchanged on piste transfer. CMS implementations SHOULD use UUID v4. |
+| `phase_type` | string | M | — | Phase type — same values as in `software/match` |
+| `label` | string | O | — | Human-readable slot label (e.g. `"Pool A"`, `"Round of 32"`) |
+| `active_bout` | integer | O | — | `id` of the currently active bout; matches `match` in `software/match`. Absent if no bout is currently active. |
+| `participants` | array | O | `[]` | Ordered participant list. SHOULD be present for pool rounds to enable matrix rendering. MAY be omitted for DE rounds — fencer identities are available within each bout object. |
+| `participants[].position` | integer | M | — | 1-based position in the ordered list; used for matrix row/column ordering |
+| `participants[].id` | string | M | — | Fencer identifier |
+| `participants[].name` | string | M | — | Fencer name |
+| `participants[].nation` | string | O | — | IOC 3-letter nation code |
+| `participants[].club_abbr` | string | O | — | Club abbreviation |
+| `bouts` | array | M | — | Ordered list of bouts in this slot, in official bout order |
+| `bouts[].id` | integer | M | — | Bout identifier — 1-based, local within the slot. Matches `match` in `software/match` for the active bout. |
+| `bouts[].left` | object | M | — | Left fencer identity — same structure as `left.fencer` in `software/fencers` |
+| `bouts[].right` | object | M | — | Right fencer identity |
+| `bouts[].result` | object | O | `null` | Null or absent until the bout is confirmed (ACK received). Fields: `left_score` (integer), `right_score` (integer), `left_status` (string), `right_status` (string) — same value range as `apparatus/score`. |
+| `bouts[].annotations` | array | O | — | Absent in normal operation. Present only on piste transfer to carry accumulated annotations to the new piste — see below. |
+
+### Published when
+
+| Event | What changes in the payload |
+|-------|----------------------------|
+| Slot assigned to piste | Full payload; all `result` fields null; `active_bout` set to the first bout |
+| Bout confirmed (ACK) | `bouts[n].result` filled in; `active_bout` advanced to next bout, or absent if no more bouts remain |
+| Piste transfer | Full payload on the new piste's topic — same `slot_id`, same bouts, same results; `bouts[n].annotations` populated for completed bouts |
+
+### Piste transfer
+
+When the CMS reassigns a slot to a different piste (equipment failure, scheduling change), it publishes `software/record` on the **new piste's topic** with the same `slot_id`, the same bouts and results, and any annotations accumulated from `scoresheet/event` messages included in `bouts[n].annotations`. The scoresheet on the new piste bootstraps from this retained message and publishes a matching `scoresheet/record` (Section 18) to re-establish the annotation log on the new piste.
+
+This mirrors the apparatus recovery pattern: the CMS republishes `software/fencers` and `software/match`, and the apparatus loads its current state from those messages. The same principle applies here — the CMS is the authoritative source for the current state of any slot, and display components treat its retained messages as their starting point.
+
+---
+
+## 18. Message: scoresheet/record
+
+**Topic:** `openpiste/{piste_id}/scoresheet/record`
+**QoS:** 1
+**Retained:** Yes
+
+Published by the electronic scoresheet to maintain the authoritative retained log of all annotations made during the current slot. On every new annotation the scoresheet republishes the complete accumulated list — the broker always holds the full history. Any subscriber connecting mid-slot receives the full annotation state immediately.
+
+This message is the complement to `software/record` (Section 17): the CMS owns bout structure and results; the scoresheet owns the annotation log. The `slot_id` field ties the two together.
+
+**Relation to `scoresheet/event`:** `scoresheet/event` (Section 22) is a per-event fire-and-forget notification for real-time subscribers such as the CMS. `scoresheet/record` is the accumulated retained state. Both are published on every new annotation. Subscribers that only need the current complete state — a late-joining display, or the scoresheet itself on reconnect — subscribe to `scoresheet/record`. Subscribers that must react to each individual event — such as the CMS storing annotations in a database — subscribe to `scoresheet/event`.
+
+### Payload
+
+```json
+{
+  "protocol":    "OPP2",
+  "version":     "1.0",
+  "seq":         58,
+  "slot_id":     "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "annotations": [
+    {
+      "bout_id": 1,
+      "event":   "CARD_REASON",
+      "side":    "left",
+      "card":    "yellow",
+      "reason":  "Corps-à-corps",
+      "ts":      1715539200789
+    },
+    {
+      "bout_id": 1,
+      "event":   "CARD_REASON",
+      "side":    "right",
+      "card":    "red",
+      "reason":  "Repeated Group 1: Corps-à-corps",
+      "ts":      1715539260123
+    }
+  ]
+}
+```
+
+### Fields
+
+| Field | Type | M/O | Description |
+|-------|------|-----|-------------|
+| `protocol` | string | M | Always `"OPP2"` |
+| `version` | string | M | Protocol version |
+| `seq` | integer | M | Global sequence counter |
+| `slot_id` | string | M | Must match the `slot_id` in the current `software/record`. Used by the scoresheet to detect slot changes. |
+| `annotations` | array | M | Complete ordered list of all annotations for this slot. Empty array `[]` if none recorded yet. |
+| `annotations[].bout_id` | integer | M | Identifies which bout this annotation belongs to. Matches `bouts[].id` in `software/record`. |
+| `annotations[].event` | string | M | Event type — same values as `scoresheet/event` |
+| `annotations[].side` | string | O | `"left"` or `"right"` — for side-specific annotations |
+| `annotations[].card` | string | O | Card type: `"yellow"`, `"red"`, `"black"` — for CARD_REASON events |
+| `annotations[].reason` | string | O | Recorded reason or note |
+| `annotations[].ts` | integer | M | Timestamp of the annotation — see Section 28 |
+
+### Scoresheet startup and reconnect sequence
+
+On startup or reconnect, the scoresheet follows this sequence:
+
+1. Subscribe to `software/record` and `scoresheet/record` — the broker delivers both retained messages immediately.
+2. Read `software/record` → extract `slot_id`, bout structure, and any initialisation annotations (present only on a piste transfer).
+3. Read `scoresheet/record` → compare its `slot_id` with the one from `software/record`.
+4. **Match** → restore annotation history from `scoresheet/record`. If `software/record` also carries annotations (piste transfer), merge and deduplicate by `bout_id` + `ts`.
+5. **Mismatch or absent** → clear annotation list; publish a fresh `scoresheet/record` with the new `slot_id` and an empty `annotations` array.
+
+### Slot change mid-session
+
+When the scoresheet receives a new `software/record` with a different `slot_id`, it clears its annotation list and publishes a fresh `scoresheet/record` with the new `slot_id` and an empty annotations array. The previous slot's annotations remain in the CMS database, where they were stored on receipt of each `scoresheet/event`.
+
+---
+
+## 19. Message: uw2f
 
 **Topic:** `openpiste/{piste_id}/apparatus/uw2f`
 **QoS:** 1
@@ -796,13 +982,13 @@ P-card semantics (which card type corresponds to which ordinal) are defined by t
 
 ---
 
-## 18. Message: medical
+## 20. Message: medical
 
 **Topic:** `openpiste/{piste_id}/apparatus/medical`
 **QoS:** 1
 **Retained:** Yes
 
-Published when a medical timeout is granted and on every subsequent timer update. The medical timeout is initiated via a `MEDICAL` control command (see Section 22) issued by the apparatus when the referee grants the timeout. The countdown timer runs from the duration specified in the initiating control command.
+Published when a medical timeout is granted and on every subsequent timer update. The medical timeout is initiated via a `MEDICAL` control command (see Section 24) issued by the apparatus when the referee grants the timeout. The countdown timer runs from the duration specified in the initiating control command.
 
 ### Payload — timeout active
 
@@ -848,7 +1034,7 @@ Published when a medical timeout is granted and on every subsequent timer update
 
 ---
 
-## 19. Message: video\_review
+## 21. Message: video\_review
 
 **Topic:** `openpiste/{piste_id}/{publisher}/video_review`
 **QoS:** 1
@@ -910,15 +1096,19 @@ These counts reflect current FIE rules and are subject to change. The apparatus 
 
 ---
 
-## 20. Message: scoresheet/event
+## 22. Message: scoresheet/event
 
 **Topic:** `openpiste/{piste_id}/scoresheet/event`
 **QoS:** 1
-**Retained:** Yes
+**Retained:** No
 
-Published by the electronic score sheet (a tablet or smartphone used by the table official) when a table-side annotation is made. This message replaces the paper pool and DE sheet as the authoritative record of match annotations — card reasons, medical notes, reserve fencer introductions, and similar events that are recorded by the table official rather than detected by the apparatus.
+Published by the electronic scoresheet on each individual annotation — a card reason, medical note, reserve fencer introduction, or other table official record. This is a per-event fire-and-forget notification. The broker does not retain it.
 
-The score sheet subscribes to `apparatus/score`, `apparatus/lights`, and `apparatus/state` to display live data from the apparatus. It publishes `scoresheet/event` when the table official records an annotation.
+Real-time subscribers — primarily the CMS — subscribe to this topic to react to each annotation as it occurs, for example to store it in a database. The CMS SHOULD persist every received annotation so it can include them in `software/record` when transferring a slot to a different piste.
+
+For the full accumulated annotation history — needed by late-joining displays or after a scoresheet reconnect — see `scoresheet/record` (Section 18). Both messages are published on every new annotation: `scoresheet/event` for real-time subscribers, `scoresheet/record` as the retained accumulated state.
+
+**Retained rationale:** `scoresheet/event` is not retained because it is a point-in-time event notification, not a state description. A retained event would deliver a single annotation to late subscribers with no preceding context — misleading rather than helpful. The full annotation history is always available in `scoresheet/record`.
 
 ### Payload
 
@@ -928,6 +1118,7 @@ The score sheet subscribes to `apparatus/score`, `apparatus/lights`, and `appara
   "version":   "1.0",
   "seq":       52,
   "ts":        1715539200789,
+  "bout_id":   1,
   "event":     "CARD_REASON",
   "side":      "left",
   "card":      "yellow",
@@ -942,7 +1133,8 @@ The score sheet subscribes to `apparatus/score`, `apparatus/lights`, and `appara
 | `protocol` | string | M | Always `"OPP2"` |
 | `version` | string | M | Protocol version |
 | `seq` | integer | M | Global sequence counter |
-| `ts` | integer | M | Timestamp of the annotation — see Section 26 |
+| `ts` | integer | M | Timestamp of the annotation — see Section 28 |
+| `bout_id` | integer | O | Identifies which bout in the current slot this annotation belongs to. Matches `bouts[].id` in `software/record`. Absent if the annotation is not bout-specific. |
 | `event` | string | M | Event type — see defined values below |
 | `side` | string | O | `"left"` or `"right"` — for side-specific events |
 | `card` | string | O | Card type: `"yellow"`, `"red"`, `"black"` — for CARD_REASON events |
@@ -952,7 +1144,7 @@ The score sheet subscribes to `apparatus/score`, `apparatus/lights`, and `appara
 
 | Event | Description |
 |-------|-------------|
-| `"CARD_REASON"` | Reason recorded for a card — `side`, `card`, and `reason` fields apply |
+| `"CARD_REASON"` | Reason recorded for a card — `bout_id`, `side`, `card`, and `reason` fields apply |
 | `"MEDICAL_NOTE"` | Medical timeout note — `side` and `reason` fields apply |
 | `"RESERVE"` | Reserve fencer introduction recorded — `side` field required |
 
@@ -960,7 +1152,7 @@ Additional event values may be defined in future revisions without a protocol ve
 
 ---
 
-## 21. Message: var/connection
+## 23. Message: var/connection
 
 **Topic:** `openpiste/{piste_id}/var/connection`
 **QoS:** 1
@@ -991,7 +1183,7 @@ Indicates whether the video referee system is currently connected and active for
 
 ---
 
-## 22. Message: control
+## 24. Message: control
 
 **Topic:** `openpiste/{piste_id}/{publisher}/control`
 **QoS:** 1
@@ -1020,7 +1212,7 @@ Published when a control event occurs. This topic is bidirectional — it carrie
 | `protocol` | string | M | Always `"OPP2"` |
 | `version` | string | M | Protocol version |
 | `seq` | integer | M | Global sequence counter |
-| `ts` | integer | M | Timestamp when command was issued — see Section 26 |
+| `ts` | integer | M | Timestamp when command was issued — see Section 28 |
 | `command` | string | M | Command name — see defined values below |
 | `side` | string | O | `"left"` or `"right"` — for side-specific commands |
 | `duration` | integer | O | Duration in seconds — for MEDICAL command only |
@@ -1048,11 +1240,11 @@ Additional command values may be defined in future revisions without a protocol 
 
 ---
 
-## 23. Apparatus state machine
+## 25. Apparatus state machine
 
 *The state machine described in this section is derived from EFP1.1 (Cyrano protocol, version 1.1, October 2019), Section 4, authored by J-F Nicaud and the Favero Company. It has been adapted to the OPP2 publish/subscribe model: direction is determined by the publisher segment in the topic hierarchy rather than by message type, and "sending" and "receiving" are replaced by "publishing" and "subscribing".*
 
-### 23.1 States
+### 25.1 States
 
 The apparatus operates in one of five states at all times. The current state is published to `apparatus/state` on every transition.
 
@@ -1060,15 +1252,15 @@ The apparatus operates in one of five states at all times. The current state is 
 |-------|---------|
 | **Waiting** (`"W"`) | No active bout. A match may or may not be loaded. The stopwatch may show a scheduled start time. The apparatus is ready to receive match data from software or to begin a bout. |
 | **Fencing** (`"F"`) | The bout is active and the stopwatch is running. The apparatus publishes clock, lights, score, and blade contact messages as events occur. |
-| **Halt** (`"H"`) | The bout is paused. The stopwatch is stopped. The apparatus remains in Active state (see Section 23.2). |
+| **Halt** (`"H"`) | The bout is paused. The stopwatch is stopped. The apparatus remains in Active state (see Section 25.2). |
 | **Pause** (`"P"`) | Between periods. The stopwatch is running (counting down the inter-period break). |
 | **Ending** (`"E"`) | The apparatus has signalled the end of a match or round and is awaiting ACK or NAK from software. The apparatus remains in this state until it receives a response. |
 
-### 23.2 Active and Waiting
+### 25.2 Active and Waiting
 
 The four states Fencing, Halt, Pause, and Ending are collectively referred to as **Active**. The apparatus publishes all changes — score, lights, stopwatch, cards — while in Active state. While in Waiting state, the apparatus publishes only its basic state and any available match information.
 
-### 23.3 State transition table
+### 25.3 State transition table
 
 | Current state | Event | Apparatus behaviour | New state |
 |--------------|-------|--------------------|----|
@@ -1089,7 +1281,7 @@ The four states Fencing, Halt, Pause, and Ending are collectively referred to as
 - When in Active state, any change (score, lights, cards, clock) triggers immediate publication of the affected topic.
 - On receipt of a `software/fencers` or `software/match` message, the apparatus updates its display but does not change state or reset scores. This mirrors EFP1.1 DISP behaviour.
 
-### 23.4 Correct and incorrect end of match
+### 25.4 Correct and incorrect end of match
 
 The apparatus evaluates whether the end of a match is formally correct before publishing the END command. This evaluation applies to individual competitions; team round endings are always considered correct unless it is the final round.
 
@@ -1102,30 +1294,30 @@ The apparatus evaluates whether the end of a match is formally correct before pu
 
 When software responds with NAK, the apparatus returns to Halt state and SHOULD display an appropriate message to the operator (e.g. "END not accepted").
 
-### 23.5 Score publishing behaviour
+### 25.5 Score publishing behaviour
 
 The apparatus publishes `apparatus/score` on every score change and also when it first loads a match. When software sends a `software/match` message containing pre-existing scores (e.g. for team rounds after the first, or when restoring a previous match), the apparatus displays those scores immediately. The BEGIN command does not reset scores that were supplied via `software/match`.
 
-### 23.6 Clock publishing behaviour
+### 25.6 Clock publishing behaviour
 
 The apparatus publishes `apparatus/clock` once per second while the stopwatch is running, and immediately on any clock state change (start, stop, reset). More frequent publication is unnecessary and SHOULD be avoided — at peak competition load a broker may be serving many pistes simultaneously.
 
-### 23.7 Reserve fencer
+### 25.7 Reserve fencer
 
 When the referee introduces a reserve fencer, the apparatus publishes `apparatus/control` with `"command": "RESERVE"` and `"side": "left"` or `"right"`. This signal is valid only in team competitions when a reserve fencer has been declared and has not yet been used. Software responds by updating the fencer assignment for subsequent rounds via `software/fencers`.
 
 ---
 
-## 24. Field types and conventions
+## 26. Field types and conventions
 
-### 24.1 JSON types
+### 26.1 JSON types
 
 | Type | JSON representation | Notes |
 |------|--------------------|----|
 | Boolean | `true` / `false` | Never `"0"` / `"1"` or string-encoded |
 | Integer | JSON number, no quotes | Scores, card counts, millisecond times, sequence counter |
 | String | JSON string | Identifiers, names, nation codes, formatted times |
-| Timestamp | JSON integer (64-bit) | See Section 26 for encoding convention |
+| Timestamp | JSON integer (64-bit) | See Section 28 for encoding convention |
 
 **Formatted time strings** use `"M:SS"` or `"M:SS.cc"` format. Hundredths are mandatory when time is below 10 seconds, consistent with EFP1.1 convention.
 
@@ -1143,7 +1335,7 @@ standard IOC 3-letter ASCII codes (uppercase A–Z only). Downstream systems
 exact ASCII code, and a non-standard value will silently break those
 integrations even though the JSON itself would parse correctly.
 
-### 24.2 Mandatory and optional fields
+### 26.2 Mandatory and optional fields
 
 Each field in the per-message tables is marked **M** (mandatory) or **O** (optional).
 
@@ -1151,7 +1343,7 @@ Each field in the per-message tables is marked **M** (mandatory) or **O** (optio
 
 **Optional fields** MAY be absent. When absent, the receiver MUST apply the default value shown in the table. Optional fields with no default (shown as —) have no meaningful default and their absence simply means the information is unavailable; receivers MUST handle this gracefully.
 
-### 24.3 Versioning and field obligations
+### 26.3 Versioning and field obligations
 
 Which fields are mandatory depends on the protocol version the sender declares in the `version` field. A receiver encountering a sender running an older version MUST apply defaults for any mandatory fields that are absent.
 
@@ -1162,46 +1354,46 @@ Which fields are mandatory depends on the protocol version the sender declares i
 
 ---
 
-## 25. Sequence counter and idempotency
+## 27. Sequence counter and idempotency
 
-### 25.1 Purpose
+### 27.1 Purpose
 
 MQTT QoS 1 guarantees at-least-once delivery, which means a message may be delivered more than once under certain network conditions. Consumers that perform irreversible actions on receipt — updating a score, issuing a command, recording a video review — must be able to detect and discard duplicate deliveries without processing them twice.
 
-### 25.2 The seq field
+### 27.2 The seq field
 
 Every QoS 1 message carries a mandatory `seq` field: an unsigned 32-bit integer that is incremented by the producer before every publish, regardless of topic. The counter is global — shared across all topics published by one device. It is not reset between topics, only on device reboot.
 
 Using a single global counter means that no two messages from the same device will share the same `seq` value within a session, satisfying per-topic uniqueness as a stronger property. It also allows consumers to reconstruct the cross-topic publish order if needed.
 
-### 25.3 Detecting duplicates
+### 27.3 Detecting duplicates
 
 A consumer tracks the last seen `seq` value per producer (identified by piste ID and publisher segment). If a received message carries a `seq` value already seen from that producer, the message is a duplicate and SHOULD be discarded.
 
-### 25.4 Detecting a new session after reboot
+### 27.4 Detecting a new session after reboot
 
 On device reboot the counter resets to a low value (typically 1). A consumer distinguishes a reboot from a wraparound by checking the timestamp:
 
 - If `seq` resets to a low value AND `ts` has advanced significantly → new session; reset the tracked counter
 - If `seq` wraps from near `0xFFFFFFFF` to near `0` AND `ts` is continuous → wraparound, not a reboot
 
-### 25.5 Counter wraparound
+### 27.5 Counter wraparound
 
 The 32-bit unsigned counter wraps around after approximately 4.3 billion publishes. At one publish per second this takes over 136 years. Wraparound is not a practical concern but consumers SHOULD handle it gracefully as described above.
 
-### 25.6 QoS 0 messages
+### 27.6 QoS 0 messages
 
 `seq` is absent on QoS 0 messages (clock, blade_contact). These messages are inherently lossy by design — the timestamp serves as the primary identity reference for the rare cases where ordering or deduplication matters.
 
 ---
 
-## 26. Timestamp conventions
+## 28. Timestamp conventions
 
-### 26.1 UTC only
+### 28.1 UTC only
 
 All timestamps in Level 2 are UTC. No local time, no timezone offsets, no daylight saving adjustments. Unix epoch milliseconds are by definition UTC — this is not a configuration choice, it is inherent to the format. Implementations MUST use UTC time sources and MUST NOT apply local timezone conversions.
 
-### 26.2 Format
+### 28.2 Format
 
 All timestamps are 64-bit unsigned integers. The upper byte (bits 63–56) carries a clock source flag. The lower 56 bits carry the time value in milliseconds.
 
@@ -1210,7 +1402,7 @@ All timestamps are 64-bit unsigned integers. The upper byte (bits 63–56) carri
 | 63–56 | Clock source flag (upper byte) |
 | 55–0 | Time value in milliseconds (lower 56 bits) |
 
-### 26.3 Flag values
+### 28.3 Flag values
 
 | Upper byte | Meaning | Lower 56 bits |
 |------------|---------|---------------|
@@ -1218,11 +1410,11 @@ All timestamps are 64-bit unsigned integers. The upper byte (bits 63–56) carri
 | `0x01` | Session — boot relative | Milliseconds since device boot (`millis()`) |
 | `0x02`–`0xFF` | Reserved | — |
 
-### 26.4 NTP timestamps
+### 28.4 NTP timestamps
 
 Current Unix epoch milliseconds are approximately `1.7 × 10¹²` (`0x0000018E...` in hex). The upper byte is naturally `0x00` for the foreseeable future. NTP timestamps therefore require no manipulation at the apparatus — the raw epoch millisecond value is correct.
 
-### 26.5 Session timestamps
+### 28.5 Session timestamps
 
 When NTP is unavailable, the apparatus SHOULD use milliseconds since device boot with the upper byte set to `0x01`:
 
@@ -1236,7 +1428,7 @@ uint64_t ts = ((uint64_t)0x01 << 56) | (uint64_t)millis();
 
 Session timestamps are useful for relative timing within a session but cannot be compared across devices or to wall-clock time.
 
-### 26.6 Reading timestamps
+### 28.6 Reading timestamps
 
 ```cpp
 uint8_t  flag = (ts >> 56) & 0xFF;
@@ -1245,38 +1437,38 @@ uint64_t time = ts & 0x00FFFFFFFFFFFFFF;
 // flag == 0x01: time is milliseconds since device boot
 ```
 
-### 26.7 Video synchronisation
+### 28.7 Video synchronisation
 
 When using blade contact or lights timestamps to synchronise video overlays, both the apparatus and the video system SHOULD be synchronised to the same NTP server. Residual clock drift between devices is typically under 10ms on a well-managed local network.
 
 ---
 
-## 27. Versioning and compatibility
+## 29. Versioning and compatibility
 
-### 27.1 Protocol identifier and version
+### 29.1 Protocol identifier and version
 
 Every message carries two mandatory fields:
 
 - `"protocol": "OPP2"` — the protocol family identifier. Fixed for all Level 2 messages.
 - `"version": "1.0"` — the protocol version as a `"major.minor"` string.
 
-A receiver SHOULD check the `protocol` field and MAY ignore messages with an unrecognised identifier. The `version` field governs which fields are mandatory — see Section 24.2 and 24.3.
+A receiver SHOULD check the `protocol` field and MAY ignore messages with an unrecognised identifier. The `version` field governs which fields are mandatory — see Section 26.2 and 26.3.
 
-### 27.2 Minor revisions — adding fields
+### 29.2 Minor revisions — adding fields
 
 New fields may be added to any message in a minor revision (e.g. `"1.0"` → `"1.1"`). Receivers that know only the older version will encounter unknown fields, which JSON parsers silently ignore — existing receivers continue to operate correctly.
 
-### 27.3 Breaking changes
+### 29.3 Breaking changes
 
 Removing or renaming existing mandatory fields, or changing field types, constitutes a breaking change and requires a new protocol identifier (e.g. `"OPP3"`). The `version` field resets to `"1.0"` with each new protocol identifier.
 
-### 27.4 Adding enumerated values
+### 29.4 Adding enumerated values
 
 New values for `command`, `phase_type`, and the `{publisher}` topic segment are not breaking changes and do not require a version increment. Receivers that encounter unknown values SHOULD ignore them.
 
 ---
 
-## 28. Security
+## 30. Security
 
 > **Open item — decision required before production deployment.**
 
@@ -1304,9 +1496,9 @@ A formal security specification will be added in a future revision.
 
 ---
 
-## 29. Cloud bridging and competition identity
+## 31. Cloud bridging and competition identity
 
-### 29.0 Introduction
+### 31.0 Introduction
 
 A local MQTT broker is designed for one venue. It serves the apparatus, the displays, the remote controls, and any other devices physically present at the competition. It is fast, self-contained, and requires no internet connection. This is the right architecture for real-time scoring on the piste.
 
@@ -1326,7 +1518,7 @@ But there are compelling reasons to make that data available beyond the venue:
 
 Bridging is the mechanism that makes all of this possible without changing anything at the local level. A bridge is a piece of software that subscribes to the local broker and republishes the messages to a cloud broker, enriching the topic with enough context to make the data meaningful and discoverable outside the venue. The local apparatus, the CMS, the displays — none of them need to know the bridge exists.
 
-### 29.1 Local simplicity by design
+### 31.1 Local simplicity by design
 
 A local broker serves one venue. The apparatus knows only that it is on piste 17. It publishes to `openpiste/17/apparatus/lights`. It does not know or care whether that data is consumed locally, relayed to a cloud broker, or archived. This simplicity is intentional and preserved by design.
 
@@ -1334,7 +1526,7 @@ Cloud connectivity is handled entirely by a **bridge** — a component that subs
 
 Importantly, this bridging capability is built directly into Mosquitto and most other standards-compliant MQTT brokers. No additional middleware or custom software is required to relay messages from a local broker to a cloud broker — it is a native feature, configurable in a few lines. This was an explicit reason for choosing MQTT as the transport for OPP2: the cloud relay capability comes for free with the technology, rather than requiring a bespoke integration layer.
 
-### 29.2 Cloud topic structure
+### 31.2 Cloud topic structure
 
 When relaying from a local broker to a cloud broker, the bridge prepends a structured prefix to every topic:
 
@@ -1363,7 +1555,7 @@ openpiste/BEL/2026/06/15/bel-nat-champ-2026/efj-eq/17/apparatus/lights
 
 on the cloud broker.
 
-### 29.3 Rationale for the topic structure
+### 31.3 Rationale for the topic structure
 
 **Global uniqueness without a global registry.** No single segment needs to be globally unique on its own. The combination of country, date, tournament identifier, and competition identifier creates global uniqueness through hierarchy — the same way a postal address works. `bel-nat-champ-2026/efj-eq` only needs to be unique within `BEL/2026/06/15/`, which is a very small namespace. A national federation can maintain its own list of competition identifiers without coordinating with any global authority.
 
@@ -1387,11 +1579,11 @@ Note: MQTT wildcards use `+` (single segment) and `#` (all remaining segments). 
 
 **Local topics are unchanged.** The bridge adds the prefix on relay. The apparatus, CMS, and local subscribers are entirely unaware of the cloud topic structure.
 
-**The `ext_id` field complements, not replaces, the topic hierarchy.** The topic hierarchy handles routing and discovery on the broker. The `ext_id` field in the identity message (Section 29.5) handles authoritative cross-system identity — linking a competition to the FIE database, a national federation's results system, or any other external registry. These are separate concerns handled by separate mechanisms.
+**The `ext_id` field complements, not replaces, the topic hierarchy.** The topic hierarchy handles routing and discovery on the broker. The `ext_id` field in the identity message (Section 31.5) handles authoritative cross-system identity — linking a competition to the FIE database, a national federation's results system, or any other external registry. These are separate concerns handled by separate mechanisms.
 
 Identifiers SHOULD be lowercase, URL-safe, and use hyphens as word separators. They MUST NOT contain spaces, slashes, or wildcard characters (`#`, `+`).
 
-### 29.4 Multiple competitions at one venue
+### 31.4 Multiple competitions at one venue
 
 A large championship runs multiple weapon and category events simultaneously on different piste groups. Each event is a separate `competition_id` under the same `tournament_id`. Piste numbers are assigned locally and may overlap between competitions — this is not a problem because the full topic path is unambiguous.
 
@@ -1400,7 +1592,7 @@ openpiste/ITA/2026/06/15/eur-champ-2026/efj-eq/17/apparatus/score   # junior men
 openpiste/ITA/2026/06/15/eur-champ-2026/esf-foil/17/apparatus/score # senior women's foil, piste 17
 ```
 
-### 29.5 Competition identity message
+### 31.5 Competition identity message
 
 The bridge publishes a retained identity message to the cloud broker at the start of each competition. This serves as the discovery layer — a subscriber can watch `openpiste/+/+/+/+/+/+/identity` to find all currently live competitions on the cloud broker, or narrow the subscription to a specific country or date range.
 
@@ -1433,7 +1625,7 @@ The bridge publishes a retained identity message to the cloud broker at the star
 }
 ```
 
-### 29.6 Identity message fields
+### 31.5 Identity message fields
 
 **Tournament fields:**
 
@@ -1459,7 +1651,7 @@ The bridge publishes a retained identity message to the cloud broker at the star
 | `category` | string | O | Age category (e.g. `"Senior"`, `"Junior"`, `"U17"`) |
 | `gender` | string | O | `"M"` men, `"F"` women, `"X"` mixed |
 
-### 29.7 Bridge configuration and CMS integration
+### 31.6 Bridge configuration and CMS integration
 
 > **Open item — input from CMS developers and competition organisers is actively sought.**
 
@@ -1475,15 +1667,15 @@ The preferred long-term solution is Option B or C — keeping the CMS unaware of
 
 ---
 
-## 30. Open items
+## 32. Open items
 
 **Blade contact semantics.** The blade_contact message currently treats contact as a stateful on/off event. An alternative treats it as a momentary event — a single publish with no corresponding off message. The choice affects whether blade_contact should eventually become a retained message. This will be resolved based on feedback from video referee application developers.
 
-**ACK/NAK state machine.** The full state machine around the Ending state — particularly the exact behaviour when NAK is received mid-bout versus at the end of a team round — is not yet formally specified beyond what is covered in Section 23.
+**ACK/NAK state machine.** The full state machine around the Ending state — particularly the exact behaviour when NAK is received mid-bout versus at the end of a team round — is not yet formally specified beyond what is covered in Section 25.
 
 **JSON Schema.** A machine-readable JSON Schema for all message types is planned as a separate document at `schemas/opp2/` in the OpenPiste repository. Not yet published.
 
-**Cloud bridge CMS integration.** How the bridge obtains tournament and competition identifiers from the CMS without requiring CMS-side MQTT awareness is not yet resolved. See Section 29.7.
+**Cloud bridge CMS integration.** How the bridge obtains tournament and competition identifiers from the CMS without requiring CMS-side MQTT awareness is not yet resolved. See Section 31.6.
 
 ---
 
