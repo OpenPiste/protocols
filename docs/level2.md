@@ -660,15 +660,16 @@ Published by software when any participant identity information changes. In team
       "id":     "132",
       "name":   "J. Smith",
       "nation": "GBR"
-    },
-    "video_official": {
-      "id":     "ref002",
-      "name":   "L. Dubois",
-      "nation": "FRA"
     }
   }
 }
 ```
+
+`common.referee` names the piste's primary referee — the only officiating
+identity the apparatus (and Cyrano-compatible systems) needs to know about.
+A bout may have additional officials assigned — a second referee, a video
+official, assessors — but those are a scoresheet/display concern, not an
+apparatus one, and are published in `software/record` (Section 17) instead.
 
 ### Fields
 
@@ -696,9 +697,6 @@ Published by software when any participant identity information changes. In team
 | `common.referee.id` | string | O | Referee identifier |
 | `common.referee.name` | string | O | Referee name |
 | `common.referee.nation` | string | O | Referee nation |
-| `common.video_official.id` | string | O | Video review official identifier |
-| `common.video_official.name` | string | O | Video review official name |
-| `common.video_official.nation` | string | O | Video review official nation |
 
 Optional fields SHOULD be omitted when not available. Receivers MUST handle their absence gracefully.
 
@@ -773,6 +771,8 @@ A *slot* is the unit of work assigned to a piste for a given session — a pool 
 
 Unlike `software/fencers` and `software/match` — which target the scoring apparatus and describe only the active bout — `software/record` targets display components (scoresheets, scoreboards, monitors) and describes the entire slot. The apparatus does not subscribe to this topic.
 
+`software/record` is also the canonical home for the slot's full officiating roster — the primary referee plus any second referee, video official, or assessors assigned to it. `software/fencers` carries only the single `common.referee` field the apparatus needs (Section 15); everything else about who's officiating belongs here, since it is scoresheet/display-facing and retained, so a reconnecting scoresheet gets the full roster immediately rather than waiting for the next apparatus-facing publish.
+
 **Retained rationale:** `software/fencers` and `software/match` are not retained because a stale assignment could mislead the apparatus on reconnect (see Section 4.5). `software/record` does not carry this risk — display components can render the last-known state immediately and update incrementally on each new message. Retained delivery means a scoresheet or monitor connecting mid-slot receives the full slot context without waiting for the next bout transition.
 
 ### Payload
@@ -786,6 +786,26 @@ Unlike `software/fencers` and `software/match` — which target the scoring appa
   "phase_type":  "pool",
   "label":       "Pool A",
   "active_bout": 3,
+  "referee": {
+    "id":     "132",
+    "name":   "J. Smith",
+    "nation": "GBR"
+  },
+  "referee2": {
+    "id":     "145",
+    "name":   "K. Andersson",
+    "nation": "SWE"
+  },
+  "video_official": {
+    "id":     "ref002",
+    "name":   "L. Dubois",
+    "nation": "FRA"
+  },
+  "assessor1": {
+    "id":     "88",
+    "name":   "R. Kim",
+    "nation": "KOR"
+  },
   "participants": [
     { "position": 1, "id": "32", "name": "B. Panini", "nation": "ITA", "club_abbr": "CSR" },
     { "position": 2, "id": "28", "name": "P. Martin", "nation": "FRA", "club_abbr": "CEP" },
@@ -825,6 +845,11 @@ Unlike `software/fencers` and `software/match` — which target the scoring appa
 | `phase_type` | string | M | — | Phase type — same values as in `software/match` |
 | `label` | string | O | — | Human-readable slot label (e.g. `"Pool A"`, `"Round of 32"`) |
 | `active_bout` | integer | O | — | `id` of the currently active bout; matches `match` in `software/match`. Absent if no bout is currently active. |
+| `referee` | object | O | — | Primary referee — `{id, name, nation}`, same shape as `common.referee` in `software/fencers` |
+| `referee2` | object | O | — | Second referee — present when the slot has two referees assigned (common in team competitions) |
+| `video_official` | object | O | — | Video review official assigned to this slot |
+| `assessor1` | object | O | — | First assessor assigned to this slot |
+| `assessor2` | object | O | — | Second assessor assigned to this slot |
 | `participants` | array | O | `[]` | Ordered participant list. SHOULD be present for pool rounds to enable matrix rendering. MAY be omitted for DE rounds — fencer identities are available within each bout object. |
 | `participants[].position` | integer | M | — | 1-based position in the ordered list; used for matrix row/column ordering |
 | `participants[].id` | string | M | — | Fencer identifier |
@@ -881,7 +906,8 @@ This message is the complement to `software/record` (Section 17): the CMS owns b
       "side":    "left",
       "card":    "yellow",
       "reason":  "Corps-à-corps",
-      "ts":      1715539200789
+      "ts":      1715539200789,
+      "official": { "id": "132", "name": "J. Smith", "role": "referee" }
     },
     {
       "bout_id": 1,
@@ -910,6 +936,7 @@ This message is the complement to `software/record` (Section 17): the CMS owns b
 | `annotations[].card` | string | O | Card type: `"yellow"`, `"red"`, `"black"` — for CARD_REASON events |
 | `annotations[].reason` | string | O | Recorded reason or note |
 | `annotations[].ts` | integer | M | Timestamp of the annotation — see Section 28 |
+| `annotations[].official` | object | O | Deciding official — same shape and meaning as `official` in `scoresheet/event` (Section 22) |
 
 ### Scoresheet startup and reconnect sequence
 
@@ -1056,7 +1083,8 @@ Published when a video review is requested or resolved. Carries both the current
         "id":      1,
         "round":   1,
         "time_ms": 89250,
-        "granted": false
+        "granted": false,
+        "official": { "id": "ref002", "name": "L. Dubois" }
       }
     ]
   },
@@ -1087,6 +1115,7 @@ Published when a video review is requested or resolved. Carries both the current
 | `round` | integer | Round or period in which the call was made |
 | `time_ms` | integer | Stopwatch value in milliseconds at the moment of the call |
 | `granted` | boolean | `true` — granted; `false` — denied. Absent if not yet resolved. |
+| `official` | object | Video official who resolved this call — `{id, name}`. Absent while unresolved. |
 
 **Initial call counts by phase:**
 - Pool matches and team matches: 1 call per fencer
@@ -1122,7 +1151,12 @@ For the full accumulated annotation history — needed by late-joining displays 
   "event":     "CARD_REASON",
   "side":      "left",
   "card":      "yellow",
-  "reason":    "Corps-à-corps"
+  "reason":    "Corps-à-corps",
+  "official": {
+    "id":   "132",
+    "name": "J. Smith",
+    "role": "referee"
+  }
 }
 ```
 
@@ -1139,6 +1173,9 @@ For the full accumulated annotation history — needed by late-joining displays 
 | `side` | string | O | `"left"` or `"right"` — for side-specific events |
 | `card` | string | O | Card type: `"yellow"`, `"red"`, `"black"` — for CARD_REASON events |
 | `reason` | string | O | Free text reason or note recorded by the table official |
+| `official.id` | string | O | Identifies which official made this specific decision — distinct from the roster in `software/record`, which only says who is assigned to the bout. Matches the `id` of one of `software/record`'s `referee`/`referee2`/`assessor1`/`assessor2`. Absent if not attributed to a specific official. |
+| `official.name` | string | O | Deciding official's name |
+| `official.role` | string | O | `"referee"`, `"referee2"`, `"assessor1"`, or `"assessor2"` — the deciding official's capacity on this slot |
 
 ### Defined event values
 
