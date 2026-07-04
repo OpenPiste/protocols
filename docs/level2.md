@@ -181,6 +181,8 @@ Retained apparatus messages mean the broker holds the last published value for e
 
 **fencers and match** (publisher: software) are **not retained**. The apparatus is the authoritative source of truth for what is currently happening on the piste. If `software/fencers` and `software/match` were retained, a stale assignment from a previous session could be replayed to a newly connected apparatus when no live CMS is present. The apparatus cannot distinguish a retained message from a live one and would have no way to know whether the assignment is current. Making these non-retained means the apparatus only accepts fencer and match data when a CMS is actively pushing it.
 
+**`apparatus/fencers`** (Section 15) is retained, same as every other apparatus-published topic — the apparatus is authoritative, and a late-joining CMS needs its current assignment immediately on reconnect, exactly like `apparatus/score`.
+
 Connection recovery follows this hierarchy:
 1. If the apparatus retains its RAM state (network glitch, no power loss), it republishes its own retained topics on reconnect. No CMS action is needed.
 2. If the apparatus reboots, it first reloads state from its own non-volatile memory. Failing that, it reads its own last-known state from the retained apparatus topics on the broker.
@@ -272,8 +274,9 @@ openpiste/+/software/connection       # software connection status from all pist
 | `apparatus/score` or `software/score` | apparatus or software | 1 | Yes | On score, card, or priority change |
 | `apparatus/state` | apparatus | 1 | Yes | On apparatus state change |
 | `software/fencers` | software | 1 | No | On fencer, coach, or referee identity change |
+| `apparatus/fencers` | apparatus | 1 | Yes | On a referee-initiated left/right swap for the active bout |
 | `software/match` | software | 1 | No | On match or competition metadata change |
-| `software/record` | software | 1 | Yes | On slot assignment, bout confirmation, or piste transfer |
+| `software/record` | software | 1 | Yes | On slot assignment, bout confirmation, confirmed fencer swap, or piste transfer |
 | `apparatus/uw2f` | apparatus | 1 | Yes | On UW2F timer or P-card change |
 | `apparatus/medical` | apparatus | 1 | Yes | On medical timeout event or timer update |
 | `apparatus/video_review` or `var/video_review` | apparatus or var | 1 | Yes | On video review request or resolution |
@@ -614,11 +617,51 @@ Indicates the current operational state of the scoring apparatus. Published on e
 
 ## 15. Message: fencers
 
-**Topic:** `openpiste/{piste_id}/software/fencers`
+**Topic:** `openpiste/{piste_id}/software/fencers` or `openpiste/{piste_id}/apparatus/fencers`
 **QoS:** 1
-**Retained:** No — see Section 4.5 for rationale.
+**Retained:** `software/fencers` — No, see Section 4.5 for rationale. `apparatus/fencers` — Yes, per the default for apparatus-published topics (Section 4.5).
 
-Published by software when any participant identity information changes. In team competitions, republished at the end of each round when fencer assignments change. The message is structured in three sections: `left`, `right`, and `common`.
+Published by software when any participant identity information changes — this is the
+authoritative assignment, and the only one apparatus and Cyrano-compatible systems
+consult on load. In team competitions, republished at the end of each round when fencer
+assignments change.
+
+**`apparatus/fencers`** exists for exactly one purpose: FIE Technical Rules t.22
+requires a left-handed fencer to stand on the referee's left when fencing a
+right-hander, regardless of call order, and the referee at the piste always has final
+say over software's assignment. When the referee corrects the assignment — via a
+button on the apparatus, or a remote control, or any other locally-implemented
+mechanism entirely outside OPP2's scope (see the OpenPisteRemoteControl subspec) — the
+apparatus republishes `apparatus/fencers` with the `left` and `right` fencer objects
+exchanged, verbatim, from what it last received via `software/fencers`. Publishing the
+full fencer objects (not just the two ids) makes the intent unambiguous: this is a
+deliberate identity exchange, not a partial or corrupted update. There is no dedicated
+control command for this — the local correction is invisible to every other
+subscriber, exactly like a button press or IR remote signal; only its effect, this
+message, is ever visible on the broker.
+
+**Software's responsibility on receiving `apparatus/fencers`:** compare `left.fencer.id`
+and `right.fencer.id` against what it currently has on file for the active, not-yet-
+finished bout on that piste.
+- **Clean swap** (the same two ids, exchanged): apply it — exchange the bout's own
+  left/right assignment, including any already-recorded score and card data, so it
+  stays attached to the correct fencer rather than to whichever column it was
+  previously stored under (see `Bout.swapSides`, `services/bouts.js`) — then
+  re-publish `software/fencers` and `software/record` (same `slot_id`, same
+  `bouts[n].id`, `left`/`right` exchanged — see Section 17) so every other subscriber
+  converges on the same corrected assignment. Section 18 covers what a scoresheet does
+  with this.
+- **Anything else** (one id unchanged and the other different, both different, or any
+  other pairing that isn't a clean exchange of the current two; or no active bout on
+  that piste matches at all; or the matching bout already has a result): do **not**
+  apply it. Log the mismatch and surface a clear, immediate warning to the director —
+  this should never happen in practice, and treating it as fact rather than flagging it
+  risks silently misattributing a result. If the apparatus subsequently publishes
+  `apparatus/control` `"END"` while the mismatch remains unresolved, software MUST
+  NAK it (see Section 25.4) rather than register a result against an unconfirmed
+  fencer assignment.
+
+The message is structured in three sections: `left`, `right`, and `common`.
 
 ### Payload
 
@@ -869,6 +912,7 @@ Unlike `software/fencers` and `software/match` — which target the scoring appa
 |-------|----------------------------|
 | Slot assigned to piste | Full payload; all `result` fields null; `active_bout` set to the first bout |
 | Bout confirmed (ACK) | `bouts[n].result` filled in; `active_bout` advanced to next bout, or absent if no more bouts remain |
+| Confirmed fencer swap (Section 15) | `bouts[n].left`/`right` exchanged for the affected bout only — same `slot_id`, same `bouts[n].id`, everything else unchanged. See Section 18 for what the scoresheet does with this. |
 | Piste transfer | Full payload on the new piste's topic — same `slot_id`, same bouts, same results; `bouts[n].annotations` populated for completed bouts |
 
 ### Piste transfer
@@ -951,6 +995,24 @@ On startup or reconnect, the scoresheet follows this sequence:
 ### Slot change mid-session
 
 When the scoresheet receives a new `software/record` with a different `slot_id`, it clears its annotation list and publishes a fresh `scoresheet/record` with the new `slot_id` and an empty annotations array. The previous slot's annotations remain in the CMS database, where they were stored on receipt of each `scoresheet/event`.
+
+### Fencer swap mid-bout
+
+The scoresheet follows the scoring apparatus, not the other way around. When it receives
+a new `software/record` with the **same** `slot_id` but a `bouts[n].left`/`right` pair
+that has changed for a `bouts[n].id` it already knows — with everything else in that
+bout entry unchanged — that is a confirmed fencer swap (Section 15), not a slot change,
+and the scoresheet MUST NOT clear its annotation list. Software only ever republishes
+`software/record` this way after validating the swap itself, so the scoresheet does not
+need to re-validate it.
+
+Instead, the scoresheet exchanges `side` on every existing annotation in its own
+`scoresheet/record` for that `bout_id` (`"left"` ↔ `"right"`) — so a card recorded
+against the fencer who was on the left before the swap stays attached to that same
+fencer, who is now on the right — and republishes its own corrected `scoresheet/record`.
+This mirrors exactly what software itself does to its own bout/score/card records on
+the same event (Section 15); the two update independently, driven by the same
+underlying fact, without either waiting on the other.
 
 ---
 
@@ -1330,6 +1392,13 @@ The apparatus evaluates whether the end of a match is formally correct before pu
 **Incorrect ending** — both fencer statuses are normal, scores are equal, and priority is `"N"`. The apparatus SHOULD NOT publish the END command in this situation, or MAY publish it and expect a NAK response from software.
 
 When software responds with NAK, the apparatus returns to Halt state and SHOULD display an appropriate message to the operator (e.g. "END not accepted").
+
+**Software has one additional, independent reason to NAK**, beyond the score/status/priority
+checks above, which the apparatus itself has no way to evaluate: an unresolved
+`apparatus/fencers` mismatch (Section 15) — a fencer-identity update that wasn't a
+clean left/right exchange of the currently assigned pair. Software MUST NAK an END in
+this state regardless of how correct the score/priority otherwise looks, since it
+cannot yet be sure which fencer the recorded scores belong to.
 
 ### 25.5 Score publishing behaviour
 
