@@ -626,7 +626,7 @@ authoritative assignment, and the only one apparatus and Cyrano-compatible syste
 consult on load. In team competitions, republished at the end of each round when fencer
 assignments change.
 
-**`apparatus/fencers`** exists for exactly one purpose: FIE Technical Rules t.22
+**`apparatus/fencers`** exists primarily for one purpose: FIE Technical Rules t.22
 requires a left-handed fencer to stand on the referee's left when fencing a
 right-hander, regardless of call order, and the referee at the piste always has final
 say over software's assignment. When the referee corrects the assignment — via a
@@ -640,9 +640,19 @@ control command for this — the local correction is invisible to every other
 subscriber, exactly like a button press or IR remote signal; only its effect, this
 message, is ever visible on the broker.
 
+The apparatus MAY also republish `apparatus/fencers` for reasons unrelated to a swap —
+confirming a freshly-received `software/fencers` verbatim, republishing its last-known
+state on MQTT reconnect, or clearing to empty (`fencer.present: false` on both sides)
+once identifying data is no longer relevant between bouts. None of these are errors;
+software MUST distinguish them from a genuine swap by comparing content, not by
+assuming every `apparatus/fencers` publish means a swap happened.
+
 **Software's responsibility on receiving `apparatus/fencers`:** compare `left.fencer.id`
-and `right.fencer.id` against what it currently has on file for the active, not-yet-
-finished bout on that piste.
+and `right.fencer.id` against what it currently has on file for the active bout on
+that piste.
+- **Empty** (both sides absent): the normal idle-between-bouts state. Ignore.
+- **Identical to the current assignment** (same two ids, same sides): a confirmation
+  echo, not a swap. Ignore — nothing to apply, nothing to flag.
 - **Clean swap** (the same two ids, exchanged): apply it — exchange the bout's own
   left/right assignment, including any already-recorded score and card data, so it
   stays attached to the correct fencer rather than to whichever column it was
@@ -652,14 +662,14 @@ finished bout on that piste.
   converges on the same corrected assignment. Section 18 covers what a scoresheet does
   with this.
 - **Anything else** (one id unchanged and the other different, both different, or any
-  other pairing that isn't a clean exchange of the current two; or no active bout on
-  that piste matches at all; or the matching bout already has a result): do **not**
-  apply it. Log the mismatch and surface a clear, immediate warning to the director —
-  this should never happen in practice, and treating it as fact rather than flagging it
-  risks silently misattributing a result. If the apparatus subsequently publishes
-  `apparatus/control` `"END"` while the mismatch remains unresolved, software MUST
-  NAK it (see Section 25.4) rather than register a result against an unconfirmed
-  fencer assignment.
+  other pairing that is neither identical nor a clean exchange of the current two; or
+  no active bout on that piste matches at all; or the matching bout already has a
+  result): do **not** apply it. Log the mismatch and surface a clear, immediate warning
+  to the director — this should never happen in practice, and treating it as fact
+  rather than flagging it risks silently misattributing a result. If the apparatus
+  subsequently publishes `apparatus/control` `"END"` while the mismatch remains
+  unresolved, software MUST NAK it (see Section 25.4) rather than register a result
+  against an unconfirmed fencer assignment.
 
 The message is structured in three sections: `left`, `right`, and `common`.
 
