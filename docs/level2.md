@@ -175,13 +175,15 @@ See Section 28 for the timestamp encoding convention, including the fallback beh
 
 ### 4.5 Retained messages
 
-Apparatus-published state topics use retained messages. Software-published topics (`fencers`, `match`) do **not** use retained messages. `blade_contact` and `control` are also not retained.
+Apparatus-published state topics use retained messages. Software-published topics (`fencers`, `match`, `score`) do **not** use retained messages. `blade_contact` and `control` are also not retained.
 
 Retained apparatus messages mean the broker holds the last published value for every apparatus topic. A subscriber connecting after the apparatus is online immediately receives the current state without waiting for the next publish cycle. Combined with QoS 1 on all state-bearing topics, this eliminates the need for periodic heartbeat resends.
 
 **fencers and match** (publisher: software) are **not retained**. The apparatus is the authoritative source of truth for what is currently happening on the piste. If `software/fencers` and `software/match` were retained, a stale assignment from a previous session could be replayed to a newly connected apparatus when no live CMS is present. The apparatus cannot distinguish a retained message from a live one and would have no way to know whether the assignment is current. Making these non-retained means the apparatus only accepts fencer and match data when a CMS is actively pushing it.
 
 **`apparatus/fencers`** (Section 15) is retained, same as every other apparatus-published topic — the apparatus is authoritative, and a late-joining CMS needs its current assignment immediately on reconnect, exactly like `apparatus/score`.
+
+**`software/score`** is **not retained**, for the same reason as `fencers` and `match`: the apparatus is the sole executor and authority for score, cards, and priority (Section 13), and already must hold this state to drive its own display and enforce the clock interlock. A `software/score` message is a correction pushed *to* the apparatus, not a fact the apparatus should trust arrived unattended — a stale retained correction replayed to a newly connected apparatus with no live CMS behind it could silently overwrite a score the apparatus has been tracking correctly on its own since the message was first published. Making it non-retained means the apparatus only applies a software-originated correction when a CMS is actively publishing it, exactly like `fencers` and `match`. `apparatus/score` is unaffected by this and remains retained, same as every other apparatus-published topic.
 
 Connection recovery follows this hierarchy:
 1. If the apparatus retains its RAM state (network glitch, no power loss), it republishes its own retained topics on reconnect. No CMS action is needed.
@@ -271,7 +273,8 @@ openpiste/+/software/connection       # software connection status from all pist
 | `apparatus/lights` | apparatus | 1 | Yes | On any light change |
 | `apparatus/clock` | apparatus | 0 | Yes | Every second while running; on any clock state change |
 | `apparatus/blade_contact` | apparatus | 0 | No | On blade contact event |
-| `apparatus/score` or `software/score` | apparatus or software | 1 | Yes | On score, card, or priority change |
+| `apparatus/score` | apparatus | 1 | Yes | On score, card, or priority change |
+| `software/score` | software | 1 | No | On score, card, or priority correction pushed to the apparatus |
 | `apparatus/state` | apparatus | 1 | Yes | On apparatus state change |
 | `software/fencers` | software | 1 | No | On fencer, coach, or referee identity change |
 | `apparatus/fencers` | apparatus | 1 | Yes | On a referee-initiated left/right swap for the active bout |
@@ -514,9 +517,11 @@ Note: `seq` is absent on QoS 0 messages.
 
 **Topic:** `openpiste/{piste_id}/{publisher}/score`
 **QoS:** 1
-**Retained:** Yes
+**Retained:** `apparatus/score` — Yes. `software/score` — No, see Section 4.5 for rationale.
 
 Published on any change to scores, cards, or priority. The apparatus publishes under `apparatus/score`; competition management software correcting a score publishes under `software/score`. All subscribers see both; the publisher segment identifies the origin.
+
+The apparatus holds score/card/priority state for its own display and clock-interlock regardless of network presence, so `software/score` is a correction pushed to it, not a fact the apparatus should adopt unattended from a stale retained replay. On reconnect, a CMS that needs to re-assert a correction re-publishes it live, the same pattern already used for `software/fencers` and `software/match`.
 
 ### Payload
 
