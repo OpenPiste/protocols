@@ -175,7 +175,7 @@ See Section 28 for the timestamp encoding convention, including the fallback beh
 
 ### 4.5 Retained messages
 
-Apparatus-published state topics use retained messages. Software-published topics (`fencers`, `match`, `score`) do **not** use retained messages. `blade_contact` and `control` are also not retained.
+Apparatus-published state topics use retained messages. Software-published topics (`fencers`, `match`, `score`, `clock`, `uw2f`) do **not** use retained messages. `blade_contact` and `control` are also not retained.
 
 Retained apparatus messages mean the broker holds the last published value for every apparatus topic. A subscriber connecting after the apparatus is online immediately receives the current state without waiting for the next publish cycle. Combined with QoS 1 on all state-bearing topics, this eliminates the need for periodic heartbeat resends.
 
@@ -184,6 +184,10 @@ Retained apparatus messages mean the broker holds the last published value for e
 **`apparatus/fencers`** (Section 15) is retained, same as every other apparatus-published topic — the apparatus is authoritative, and a late-joining CMS needs its current assignment immediately on reconnect, exactly like `apparatus/score`.
 
 **`software/score`** is **not retained**, for the same reason as `fencers` and `match`: the apparatus is the sole executor and authority for score, cards, and priority (Section 13), and already must hold this state to drive its own display and enforce the clock interlock. A `software/score` message is a correction pushed *to* the apparatus, not a fact the apparatus should trust arrived unattended — a stale retained correction replayed to a newly connected apparatus with no live CMS behind it could silently overwrite a score the apparatus has been tracking correctly on its own since the message was first published. Making it non-retained means the apparatus only applies a software-originated correction when a CMS is actively publishing it, exactly like `fencers` and `match`. `apparatus/score` is unaffected by this and remains retained, same as every other apparatus-published topic.
+
+**`software/clock`** is **not retained**, for the same reason: the apparatus is the sole real-time authority for its own stopwatch, running start/stop and the clock interlock locally regardless of network presence (Section 11). A `software/clock` message only seeds or corrects the stopwatch's starting value — a one-shot instruction, not a fact the apparatus should adopt unattended from a stale retained replay. A retained `software/clock` left over from an earlier relay reset or piste transfer could otherwise be replayed to a newly connected apparatus and silently reset a clock it has been running correctly on its own since. `apparatus/clock` is unaffected and remains retained and QoS 0, unchanged.
+
+**`software/uw2f`** is **not retained**, for the identical reason: the apparatus holds UW2F timer and P-card state continuously for its own display (Section 19), and `software/uw2f` is a one-shot seed or correction pushed to it — used, for example, when a mid-bout piste transfer needs a new apparatus's passivity timer and P-cards to start from where the old apparatus left off rather than from zero. `apparatus/uw2f` is unaffected and remains retained.
 
 Connection recovery follows this hierarchy:
 1. If the apparatus retains its RAM state (network glitch, no power loss), it republishes its own retained topics on reconnect. No CMS action is needed.
@@ -272,6 +276,7 @@ openpiste/+/software/connection       # software connection status from all pist
 | `software/connection` | software | 1 | Yes | On connection or disconnection (including LWT) |
 | `apparatus/lights` | apparatus | 1 | Yes | On any light change |
 | `apparatus/clock` | apparatus | 0 | Yes | Every second while running; on any clock state change |
+| `software/clock` | software | 1 | No | On clock seeding or correction pushed to the apparatus (relay reset, piste transfer) |
 | `apparatus/blade_contact` | apparatus | 0 | No | On blade contact event |
 | `apparatus/score` | apparatus | 1 | Yes | On score, card, or priority change |
 | `software/score` | software | 1 | No | On score, card, or priority correction pushed to the apparatus |
@@ -281,6 +286,7 @@ openpiste/+/software/connection       # software connection status from all pist
 | `software/match` | software | 1 | No | On match or competition metadata change |
 | `software/record` | software | 1 | Yes | On slot assignment, bout confirmation, confirmed fencer swap, or piste transfer |
 | `apparatus/uw2f` | apparatus | 1 | Yes | On UW2F timer or P-card change |
+| `software/uw2f` | software | 1 | No | On UW2F timer or P-card seeding/correction pushed to the apparatus (piste transfer) |
 | `apparatus/medical` | apparatus | 1 | Yes | On medical timeout event or timer update |
 | `apparatus/video_review` or `var/video_review` | apparatus or var | 1 | Yes | On video review request or resolution |
 | `apparatus/control`, `software/control`, `remote/control`, `var/control`, or `scoresheet/control` | apparatus, software, remote, var, or scoresheet | 1 | No | On remote control event |
@@ -443,13 +449,15 @@ Light colour conventions apply across all weapons:
 
 ## 11. Message: clock
 
-**Topic:** `openpiste/{piste_id}/apparatus/clock`
-**QoS:** 0
-**Retained:** Yes
+**Topic:** `openpiste/{piste_id}/{publisher}/clock`
+**QoS:** `apparatus/clock` — 0. `software/clock` — 1.
+**Retained:** `apparatus/clock` — Yes. `software/clock` — No, see Section 4.5 for rationale.
 
-Published once per second while the stopwatch is running. Also published immediately on any clock state change (start, stop, reset). QoS 0 is appropriate — a missed clock tick self-corrects within one second.
+The apparatus publishes `apparatus/clock` once per second while the stopwatch is running, and immediately on any clock state change (start, stop, reset). QoS 0 is appropriate for the running stream — a missed tick self-corrects within one second, since the next tick supersedes it regardless of delivery. Retention addresses a different gap: while the clock is stopped (idle between bouts, potentially for minutes), there is no periodic republish, so a newly-connecting or reconnecting subscriber needs the retained value to see the correct paused time immediately rather than wait for the next state change — the same bootstrap need that justifies retention on `apparatus/score`.
 
-### Payload
+Competition management software publishes `software/clock` to seed or correct the apparatus's stopwatch to a specific value — a one-shot instruction, not a repeating stream, so it is QoS 1 rather than QoS 0. Two cases: resetting a fresh team relay's clock to its starting value (e.g. `3:00`), and seeding a new apparatus's elapsed time when an in-progress bout is moved to a different piste mid-match (apparatus failure, scheduling) so the clock survives the move instead of restarting from zero. `software/clock` only sets the stopwatch's starting value; the apparatus resumes its own authoritative start/stop and interlock logic from that point — it never bypasses or replaces the apparatus's own real-time tracking.
+
+### Payload — apparatus/clock
 
 ```json
 {
@@ -462,15 +470,30 @@ Published once per second while the stopwatch is running. Also published immedia
 }
 ```
 
+### Payload — software/clock
+
+```json
+{
+  "protocol": "OPP2",
+  "version":  "1.0",
+  "seq":      12,
+  "ts":       1715539200123,
+  "running":  false,
+  "time_ms":  89250,
+  "time":     "1:29.25"
+}
+```
+
 ### Fields
 
 | Field | Type | M/O | Default | Description |
 |-------|------|-----|---------|-------------|
 | `protocol` | string | M | — | Always `"OPP2"` |
 | `version` | string | M | — | Protocol version |
+| `seq` | integer | M on `software/clock`; absent on `apparatus/clock` | — | Global sequence counter — see Section 27. `apparatus/clock` is QoS 0, where `seq` is omitted per Section 7; `software/clock` is QoS 1, where it is mandatory. |
 | `ts` | integer | M | — | Timestamp of this publication — see Section 28 |
-| `running` | boolean | M | `false` | `true` if the stopwatch is currently running |
-| `time_ms` | integer | M | `0` | Current stopwatch value in milliseconds |
+| `running` | boolean | M | `false` | `true` if the stopwatch is currently running. On `software/clock` this is normally `false`: the referee halts play before a relay reset or piste transfer, so the seeded apparatus starts paused and the referee resumes it locally. |
+| `time_ms` | integer | M | `0` | Stopwatch value in milliseconds — current value on `apparatus/clock`, seeded value on `software/clock` |
 | `time` | string | M | `"0:00"` | Formatted as `"M:SS"` or `"M:SS.cc"`. Hundredths mandatory below 10 seconds. |
 
 Note: `seq` is absent on QoS 0 messages.
@@ -1033,19 +1056,39 @@ underlying fact, without either waiting on the other.
 
 ## 19. Message: uw2f
 
-**Topic:** `openpiste/{piste_id}/apparatus/uw2f`
+**Topic:** `openpiste/{piste_id}/{publisher}/uw2f`
 **QoS:** 1
-**Retained:** Yes
+**Retained:** `apparatus/uw2f` — Yes. `software/uw2f` — No, see Section 4.5 for rationale.
 
-Published on any change to the unwillingness-to-fight (passivity) timer or P-card state. The UW2F timer counts upward from zero.
+Published on any change to the unwillingness-to-fight (passivity) timer or P-card state. The UW2F timer counts upward from zero. `apparatus/uw2f` is QoS 1, not QoS 0 like `apparatus/clock` — it changes only on P-card issuance or an explicit timer transition, not once per second, so there is no next tick to supersede a dropped message and delivery must be guaranteed. Retention addresses a separate need: a newly-connecting or reconnecting subscriber must see the current timer value and P-card counts immediately rather than wait for the next change event — which, especially while the timer sits idle at zero between passivity sequences, may not arrive for a long time. The apparatus publishes `apparatus/uw2f` as the continuously-held, authoritative state for its own display.
 
-### Payload
+Competition management software publishes `software/uw2f` to seed or correct the apparatus's UW2F timer and P-card counts to a specific value — a one-shot instruction, analogous to `software/clock` (Section 11) and `software/score` (Section 13), not a repeating stream. Its case is the same as `software/clock`'s piste-transfer use: when an in-progress bout moves to a different apparatus mid-match, the new apparatus is seeded with the old one's passivity timer and P-cards so they survive the move instead of resetting to zero.
+
+### Payload — apparatus/uw2f
 
 ```json
 {
   "protocol": "OPP2",
   "version":  "1.0",
   "seq":      47,
+  "time_ms":  60000,
+  "time":     "1:00",
+  "right": {
+    "p_card": 1
+  },
+  "left": {
+    "p_card": 0
+  }
+}
+```
+
+### Payload — software/uw2f
+
+```json
+{
+  "protocol": "OPP2",
+  "version":  "1.0",
+  "seq":      12,
   "time_ms":  60000,
   "time":     "1:00",
   "right": {
