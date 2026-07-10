@@ -492,7 +492,7 @@ Competition management software publishes `software/clock` to seed or correct th
 | `version` | string | M | — | Protocol version |
 | `seq` | integer | M on `software/clock`; absent on `apparatus/clock` | — | Global sequence counter — see Section 27. `apparatus/clock` is QoS 0, where `seq` is omitted per Section 7; `software/clock` is QoS 1, where it is mandatory. |
 | `ts` | integer | M | — | Timestamp of this publication — see Section 28 |
-| `running` | boolean | M | `false` | `true` if the stopwatch is currently running. On `software/clock` this is normally `false`: the referee halts play before a relay reset or piste transfer, so the seeded apparatus starts paused and the referee resumes it locally. |
+| `running` | boolean | M | `false` | `true` if the stopwatch is currently running. On `software/clock` this **MUST** be `false`. Starting and stopping the clock is a real-time function driven by the apparatus's own interlock (hit sensing, referee start/stop) — never a network-commanded one. A `software/clock` message only seeds the paused starting value; the referee resumes it locally. An apparatus receiving `software/clock` with `"running": true` MUST NOT start its clock from this field — it MUST treat the message as if `running` were `false` (seed the value, stay paused), and SHOULD log the malformed message. |
 | `time_ms` | integer | M | `0` | Stopwatch value in milliseconds — current value on `apparatus/clock`, seeded value on `software/clock` |
 | `time` | string | M | `"0:00"` | Formatted as `"M:SS"` or `"M:SS.cc"`. Hundredths mandatory below 10 seconds. |
 
