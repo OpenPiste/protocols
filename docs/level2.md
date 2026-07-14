@@ -65,7 +65,7 @@ This is a working proposal, not a ratified standard. It is published in the hope
 27. [Sequence counter and idempotency](#27-sequence-counter-and-idempotency)
 28. [Timestamp conventions](#28-timestamp-conventions)
 29. [Versioning and compatibility](#29-versioning-and-compatibility)
-30. [Security](#30-security)
+30. [Security and provisioning](#30-security-and-provisioning)
 31. [Cloud bridging and competition identity](#31-cloud-bridging-and-competition-identity)
 32. [Open items](#32-open-items)
 
@@ -1632,15 +1632,34 @@ New values for `command`, `phase_type`, and the `{publisher}` topic segment are 
 
 ---
 
-## 30. Security
+## 30. Security and provisioning
 
-> **Open item — decision required before production deployment.**
+> **Draft.** This section replaces the previous placeholder with a fully worked
+> design. See the accompanying pull request description for the reasoning trail
+> behind each decision below.
 
-Security for Level 2 has not yet been formally specified. The following considerations apply and will be resolved in a future revision:
+### 30.1 Trust model
 
-**Asymmetric access model.** The appropriate model for most deployments is likely: subscribers (displays, monitors, video tools) may connect and subscribe without authentication on port 1883; publishers (apparatus, remote controls, competition software) SHOULD authenticate using MQTT username/password credentials over TLS on port 8883. This allows open read access while protecting the integrity of scoring data.
+Level 2 assumes a physically-secured local competition network as the outer
+perimeter — this section does not attempt to defend against a hostile public network,
+and does not require cryptographic strength beyond what a human-supervised bootstrap
+ritual plus TLS already provides. Every provisioning path in this section traces back
+to an operator taking an action that vouches for a new component, the same way
+physically deploying an apparatus at a venue already does. This is a deliberate,
+stated bar, not an oversight: implementers SHOULD NOT build additional cryptographic
+machinery beyond what this section specifies, and MUST NOT assume physical/network
+access alone is sufficient without it.
 
-**Publisher-scoped access control.** The topic structure maps directly onto a clean broker ACL model. Each publisher role is restricted to writing only within its own namespace:
+### 30.2 Asymmetric access model
+
+Subscribing is unauthenticated. Any client MAY connect and subscribe to `openpiste/#`
+without credentials. Publishing MUST be authenticated, gated per the publisher-scoped
+model below.
+
+### 30.3 Publisher-scoped access control
+
+Each publisher role MUST be restricted, at the broker, to publishing only within its
+own topic namespace:
 
 | Publisher | Permitted publish namespace |
 |-----------|---------------------------|
@@ -1650,13 +1669,156 @@ Security for Level 2 has not yet been formally specified. The following consider
 | `var` | `openpiste/+/var/#` |
 | `scoresheet` | `openpiste/+/scoresheet/#` |
 
-All authenticated clients may subscribe to `openpiste/#`. This prevents a misconfigured or compromised remote control from publishing score corrections, prevents software from spoofing apparatus connection state, and prevents a scoresheet from publishing video review decisions.
+This prevents a misconfigured or compromised remote control from publishing score
+corrections, prevents software from spoofing apparatus connection state, and prevents
+a scoresheet from publishing video review decisions. How a broker implements this
+restriction internally (a static ACL file, a plugin, a database-backed check) is not
+specified — only the restriction itself is normative.
 
-**Credential deployment.** For a club setup with a handful of devices, static credentials configured per device are acceptable. For a competition with many pistes and devices, a more automated approach is needed. The operational burden of credential deployment at scale is a significant consideration and will influence the final recommendation.
+### 30.4 Provisioning: two tiers by device capability
 
-**Local network isolation.** For deployments where authentication is not yet implemented, network isolation — restricting broker access to the local competition network — is the minimum acceptable control.
+A component earns the credential it authenticates with via a provisioning exchange,
+not by manual broker configuration alone. Provisioning always requires an operator
+action (Section 30.1) — there is no zero-human-involvement path, by design.
 
-A formal security specification will be added in a future revision.
+Two tiers exist because device capability genuinely differs, not because of a
+compliance shortcut. Both are legitimate; neither is a fallback for the other:
+
+- **Tier A** — components able to present a TLS client certificate at connection time
+  (embedded firmware, native applications). Provisioned via a fully scripted MQTT
+  exchange (30.5), no manual OS-level step beyond initial physical setup.
+- **Tier B** — components unable to present a TLS client certificate (browser-based
+  components — no browser exposes an API for a web page to select or supply a client
+  certificate at connection time). Provisioned via an out-of-band credential exchange
+  (30.6) that necessarily includes at least one manual step.
+
+Tier is a property of what a given implementation can do, independent of which
+publisher role it fills — a native scoresheet application is Tier A; a browser-based
+apparatus display, were one ever built, would be Tier B. A component capable of Tier A
+MAY always use it regardless of role.
+
+### 30.5 Tier A: certificate-based provisioning
+
+**Credential.** A TLS client certificate, signed by the deployment's own CA. The
+requesting component MUST generate its own key pair locally and submit only a
+certificate signing request (CSR) — the private key MUST NOT be transmitted.
+
+**Topics:**
+```
+openpiste/_provision/request
+openpiste/_provision/response/{device_id}
+```
+`_provision` is a reserved pseudo-`piste_id` and MUST NOT be used as a real one.
+`{device_id}` is a client-generated opaque correlation id. Both topics: QoS 1, not
+retained (Section 4.5's rationale for `control` applies identically here — a one-shot
+exchange, not state).
+
+**Request** (published by the new component):
+
+```json
+{
+  "protocol": "OPP2", "version": "1.0", "seq": 1, "ts": 1715539200000,
+  "code": "482913",
+  "role": "apparatus",
+  "device_id": "b6a1c2d3-...",
+  "device_label": "OpenPiste-ESP32",
+  "csr": "-----BEGIN CERTIFICATE REQUEST-----..."
+}
+```
+
+| Field | M/O | Description |
+|-------|-----|-------------|
+| `code` | M | Operator-issued ticket code (out of protocol scope how it was generated or relayed — an operator-authenticated CMS action) |
+| `role` | M | Publisher role being requested — `apparatus`\|`scoresheet`\|`remote`\|`var`. Never `software` — the CMS is the provisioning authority, not something provisioned. |
+| `device_id` | M | Client-generated opaque id; also the response topic's correlation segment |
+| `device_label` | O | Human-readable description |
+| `csr` | M | PEM-encoded certificate signing request |
+
+**Response** (published by the CMS):
+
+```json
+{ "protocol": "OPP2", "version": "1.0", "seq": 2, "ts": 1715539201000,
+  "status": "granted", "role": "apparatus",
+  "cert": "-----BEGIN CERTIFICATE-----...", "ca_cert": "-----BEGIN CERTIFICATE-----..." }
+```
+
+Failure: `{"status": "denied", "reason": "invalid_or_expired_code"}`. A signed
+certificate is not confidential — broadcasting it to any subscriber discloses nothing
+usable without the private key, which never left the device — so no additional
+access restriction on the response topic is required.
+
+**Revocation.** A compliant deployment MUST support revoking a Tier A component's
+access. Revocation SHOULD be implemented via a certificate revocation list (CRL)
+checked at the TLS handshake, not via a live responder (OCSP) — a static,
+occasionally-reloaded file is sufficient, matching the non-urgent nature of
+revocation generally (Section 30.6). Certificates SHOULD carry a bounded validity
+period (deployment-scale, not decades) as a complementary, non-exclusive safeguard —
+so an unrevoked but lost or decommissioned device still stops working within a
+bounded window.
+
+### 30.6 Tier B: credential-based provisioning
+
+**Credential.** An MQTT username/password pair, unique per device — never a shared
+credential, and never a certificate (30.4). A device's compromise is confined to that
+device alone, individually revocable, and directly attributable.
+
+**Provisioning does not require a broker capable of live credential creation.** An
+operator knows, before a competition, approximately how many Tier B devices will need
+pairing. A CMS MAY pre-generate a batch of N credentials ahead of time via a static
+mechanism (e.g. a password file), tracking assignment in its own records. What must
+be immediate is *assignment* of an already-existing credential to a device, not its
+*creation* — this is a CMS-local operation with no broker interaction at pairing time.
+Revocation (disabling one entry) MAY be a static, occasionally-reloaded operation,
+consistent with 30.5's Tier A revocation model — revocation is rare and exceptional,
+not latency-sensitive the way pairing is.
+
+**Delivery is out-of-band — not a network exchange.** The assigned credential MUST be
+conveyed to the device via a channel that does not traverse the broker or a
+cross-network API — e.g. a QR code scanned by the device's camera, or manual entry.
+This is a direct consequence of the credential being a secret with no equivalent to
+Tier A's "a certificate is safe to broadcast" property: MQTT pub/sub would expose it
+to any subscriber, and even a point-to-point network channel (HTTP) would still
+require the requesting component and the issuing CMS to negotiate a shared origin or
+CORS policy, which is not guaranteed across vendors. An out-of-band, human-supervised
+channel avoids both problems at once and requires no new infrastructure beyond what
+Section 30.4's operator-vouches-for-the-device model already assumes. The exact
+payload format (e.g. a URI-style QR payload) is not yet finalised.
+
+**Accepted, not solved:**
+- The delivered credential is long-lived, not a short-lived ticket — a photograph of
+  the QR captures a working credential for as long as it remains valid. This is
+  accepted given the operator's control over when and how long it is displayed, not
+  because the exposure is zero.
+- At-rest storage on the device (e.g. browser `localStorage`) is plaintext, readable
+  by anything with access to that specific device. No mechanism in this section
+  addresses this — it is a platform property of Tier B devices, not a protocol gap.
+  Per-device credentials (above) bound the *consequence* of this floor; they do not
+  remove it.
+
+**Operational recommendations (not normative requirements):** operators SHOULD
+dismiss a credential-bearing display promptly once shown; devices holding a Tier B
+credential SHOULD use their platform's own lock screen when not in active use. Both
+raise the bar against casual physical access, the realistic threat model here.
+
+### 30.7 Capability signaling
+
+A component or broker MAY advertise support for this section via an additional field
+on its existing `connection` message (Sections 8, 9) — e.g.
+`"provisioning_tiers": ["A", "B"]`. Absent, this means no support for this section;
+implementations that predate it remain fully compliant at the access level Sections
+30.1–30.3 describe as a baseline, without provisioning support. This section MUST NOT
+be treated as a breaking requirement for existing deployments.
+
+### 30.8 What this section does not specify
+
+- How an operator authenticates to a CMS to generate a provisioning ticket, or the
+  ticket's own transport to the operator — entirely a CMS's own concern, no more
+  standardized than how a CMS's admin panel works today.
+- Per-piste or per-instance authorization scoping beyond the per-role model in 30.3 —
+  implementations MAY add finer scoping; this section does not require it.
+- How a broker internally stores or manages credentials (a plugin, a config file, a
+  database) — only the wire-level credential shape (client certificate, or MQTT
+  username/password) and the Tier A exchange in 30.5 are normative.
 
 ---
 
