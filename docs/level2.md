@@ -512,7 +512,7 @@ Published on blade contact events. The primary purpose of this message is to pro
 
 QoS 0 is used because retransmission latency would degrade timestamp precision, which is the primary value of this message.
 
-> **Note:** The full semantics of this message are not yet finalised — see Section 32.
+**Semantics: stateful on/off, not momentary.** `blade_contact` is published once when contact begins (`active: true`) and once when it clears (`active: false`) — two events per contact, not a single momentary publish. This is a deliberate choice: it gives video and AI review applications a precise contact *duration*, not just an instant, at the cost of roughly double the event volume. Implementers should expect these events to arrive in **bursts** — a rapid sequence of parries produces a corresponding burst of paired on/off transitions in quick succession, not a steady low rate — and should design accordingly (e.g. don't assume even spacing between events). Not retained, regardless of this stateful shape: QoS 0 means an `active: true` message's corresponding `false` could be lost in transit, and a retained message would then leave a late subscriber stuck believing contact is still active with no way to know otherwise.
 
 ### Payload
 
@@ -1996,8 +1996,6 @@ The preferred long-term solution is Option B or C — keeping the CMS unaware of
 ---
 
 ## 32. Open items
-
-**Blade contact semantics.** The blade_contact message currently treats contact as a stateful on/off event. An alternative treats it as a momentary event — a single publish with no corresponding off message. The choice affects whether blade_contact should eventually become a retained message. This will be resolved based on feedback from video referee application developers.
 
 **ACK/NAK state machine.** The full state machine around the Ending state — particularly the exact behaviour when NAK is received mid-bout versus at the end of a team round — is not yet formally specified beyond what is covered in Section 25.
 
