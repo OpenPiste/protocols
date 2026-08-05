@@ -218,6 +218,16 @@ Both the apparatus and competition management software MUST configure a Last Wil
 - **Payload:** `{"online": false}`
 - **QoS:** 1 — **Retain:** true
 
+**Why the offline payload is minimal.** The online and offline forms of `connection`
+are deliberately asymmetric — this is not an oversight or a leftover from EFP1.1. A
+Will message is fixed in the CONNECT packet before the session begins and cannot be
+updated afterward without reconnecting, so any field baked into it reflects state at
+connect time, not at the moment of actual disconnection. Rather than let a subscriber
+guess which frozen fields are still trustworthy once a component drops offline, the
+offline payload carries only `online: false`: nothing else about a disconnected
+component should be treated as current. The same reasoning applies to `var/connection`
+(Section 23), which is structured identically.
+
 The apparatus watches `openpiste/{piste_id}/software/connection` to determine whether a live CMS is present. See Section 25 for how this affects apparatus behaviour.
 
 ### 4.7 Port
@@ -337,6 +347,9 @@ Indicates whether the scoring apparatus is currently connected to the broker. Th
 
 ### Payload — offline (LWT, published by broker)
 
+Deliberately minimal, not symmetric with the online payload — see "Why the offline
+payload is minimal" in Section 4.6.
+
 ```json
 {
   "online": false
@@ -382,6 +395,9 @@ Unlike the EFP1.1 HELLO — which was a periodic heartbeat every 15 seconds and 
 ```
 
 ### Payload — offline (LWT, published by broker)
+
+Deliberately minimal, not symmetric with the online payload — see "Why the offline
+payload is minimal" in Section 4.6.
 
 ```json
 {
