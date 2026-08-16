@@ -261,6 +261,9 @@ openpiste/{piste_id}/{publisher}/{message_type}
 | `var` | Message published by the video referee system |
 | `scoresheet` | Message published by an electronic score sheet (tablet or smartphone used by the table official) |
 
+These are the officially-defined roles. A vendor whose component doesn't fit any of
+them may define its own, `x_{vendor_id}_{role}` — see Section 29.5.
+
 The `{piste_id}` and `{publisher}` segments in the topic are the **authoritative** sources of piste identity and publisher role respectively. Neither is duplicated in the payload. Consumers that need to store these values alongside the payload MUST extract them from the topic at the time of receipt.
 
 Encoding the publisher role in the topic allows subscribers to filter by publisher at the broker level with no payload parsing required. It also maps directly onto broker access control: each publisher role can be restricted to writing only within its own topic namespace (see Section 30).
@@ -1661,6 +1664,59 @@ Removing or renaming existing mandatory fields, or changing field types, constit
 ### 29.4 Adding enumerated values
 
 New values for `command`, `phase_type`, and the `{publisher}` topic segment are not breaking changes and do not require a version increment. Receivers that encounter unknown values SHOULD ignore them.
+
+### 29.5 Vendor-specific extensions
+
+A vendor may need to communicate something no other implementer needs — proprietary
+diagnostics, a manufacturer-specific calibration value, a feature nobody else has built
+yet — without waiting for that need to become common enough to justify a spec change,
+and without picking a topic, field, or role name that a future official minor revision
+might happen to also pick. Three narrow, additive extension points cover this, all
+built from behaviour the protocol already guarantees rather than anything new:
+
+**Extending an existing message.** Add fields prefixed `x_{vendor_id}_`, e.g.
+`"x_acme_calibration_offset": 3`. Section 29.2 already establishes that receivers
+ignore fields they don't recognise — this reserves the `x_` prefix so a vendor's field
+name can never collide with a field Level 2 adds later, and gives every implementer a
+single, predictable rule for what to skip.
+
+**A wholly new message type**, published by an existing role. Publish it under the
+existing publisher-role topic branch that matches who's sending it (Section 5), with a
+message type prefixed `x_{vendor_id}_` — e.g. `openpiste/17/apparatus/x_acme_diagnostics`.
+Staying inside the existing `{publisher}` branch, rather than inventing a new publisher
+role or a parallel topic tree, means the extension is still governed by that
+publisher's ordinary topic-pattern ACL (Section 30.3) — no broker reconfiguration, and
+no new access-control case to reason about. QoS, retention, and payload shape for an
+`x_`-prefixed message type are the vendor's own choice; nothing here constrains them.
+
+**A wholly new publisher role**, for a component that doesn't fit any of the five roles
+in Section 5 at all — a settings-management tool, say, that is neither the apparatus
+nor competition software nor any other defined role. Use `x_{vendor_id}_{role}` as the
+`{publisher}` topic segment itself, e.g. `openpiste/17/x_acme_settingsmanager/config`.
+This is not a structurally different case from the previous two — Section 30.3's ACL
+table is not a closed enum the broker enforces, it is five example rows of the same
+general shape, `openpiste/+/{publisher}/#`. A vendor role is one more row of that same
+shape, `openpiste/+/x_acme_settingsmanager/#`, requiring no new provisioning tier or
+broker capability: whichever tier (Section 30.4) the component's connection method
+already qualifies for, unchanged. Reads stay open regardless (Section 30.2), same as
+every other publisher. A vendor role that wants its own connection/presence tracking
+defines it the same way any other extension does — an `x_`-prefixed message type
+published on its own branch (e.g. `x_acme_settingsmanager/x_acme_connection`) — rather
+than this section prescribing a connection convention for roles it can't anticipate.
+
+`{vendor_id}` is chosen by the vendor and not centrally registered; a reasonably
+distinctive slug (company or product name) avoids collisions in practice, the same
+informal convention that already works for npm and similar package namespaces. The
+guarantee that makes this safe to use unilaterally, with no upstream coordination, is
+symmetric: a receiver that doesn't recognise an `x_`-prefixed field, message type, or
+publisher role MUST ignore it rather than error — silently, for a field, exactly as
+29.2 already requires; by simply never subscribing to it, for a message type or a role.
+A vendor extension can therefore never break a compliant receiver that doesn't know
+about it.
+
+If an `x_`-prefixed extension turns out to be broadly useful, the path is the same as
+any other protocol change: propose it for standardisation rather than letting every
+other implementer reverse-engineer one vendor's private convention.
 
 ---
 
