@@ -227,7 +227,7 @@ The `ts` field (timestamp) is optional at Level 3. Publication timestamps for co
 **QoS:** 1
 **Retained:** Yes
 
-Published when the tournament is created and on any change to tournament metadata. This is the entry point for any subscriber discovering a tournament — the meta topic identifies the event, its dates, and its venue.
+Published when the tournament is created and on any change to tournament metadata. This is the entry point for any subscriber discovering a tournament — the meta topic identifies the event, its dates, its venue, and the competition management software producing the data.
 
 ### Payload
 
@@ -246,7 +246,14 @@ Published when the tournament is created and on any change to tournament metadat
   "year":         2026,
   "domain":       "I",
   "live_url":     "https://live.openpiste.org/wc-paris-2026",
-  "video_url":    "https://fie.org/live/wc-paris-2026"
+  "video_url":    "https://fie.org/live/wc-paris-2026",
+  "software": {
+    "name":     "ExampleCMS",
+    "vendor":   "Example Software Ltd",
+    "version":  "4.2.1",
+    "url":      "https://example-cms.org",
+    "logo_url": "https://example-cms.org/logo.svg"
+  }
 }
 ```
 
@@ -268,6 +275,29 @@ Published when the tournament is created and on any change to tournament metadat
 | `domain` | string | O | — | Event domain — see Section 21 |
 | `live_url` | string | O | — | URL of the live results page |
 | `video_url` | string | O | — | URL of the live video stream |
+| `software` | object | O* | — | Competition management software producing the data — see Section 8.1 |
+| `software.name` | string | M** | — | Product name, as the vendor wishes it to be displayed |
+| `software.vendor` | string | O | — | Company or author of the software |
+| `software.version` | string | O | — | Software version |
+| `software.url` | string | O | — | Website of the software or vendor |
+| `software.logo_url` | string | O | — | URL of a logo suitable for display alongside the data |
+
+\* Publishers SHOULD include the `software` object. It is optional only so that minimal or experimental implementations remain compliant.
+\*\* Mandatory when the `software` object is present.
+
+### 8.1 Software provenance and attribution
+
+The `software` object records which competition management software produced the Level 3 data. It serves two purposes.
+
+**Provenance.** When results look wrong, subscribers, operators, and vendors need to know which software produced them, and which version. This is the Level 3 counterpart of the `device` and `fw_version` fields in the Level 2 `connection` message.
+
+**Attribution.** Running a competition is the work of the competition management software and the people who build it. A subscriber that presents Level 3 data to the public (a results website, a venue display, broadcast graphics, a mobile app) SHOULD display attribution to the producing software, using `software.name` and, where the layout permits, `software.logo_url`. For example: *"Results by ExampleCMS"*.
+
+The following rules apply:
+
+- Attribution is a recommendation of this protocol. It is not a licence condition and does not grant or restrict access to the data. Access to Level 3 data is governed by the deployment (broker configuration and agreements between organisers, federations, and vendors), not by the protocol.
+- Bridges and relays (Section 20) MUST forward the `software` object unchanged. Software that republishes or transforms Level 3 data MUST NOT replace the `software` object with its own identity.
+- When different competitions within one tournament are run by different software, each competition MAY carry its own `software` object in its `competition/meta` message (Section 11). A `software` object at competition level takes precedence over the tournament-level object for that competition.
 
 ---
 
@@ -410,6 +440,7 @@ Published when a competition is created and on any change to competition metadat
 | `domain` | string | O | — | Competition domain — see Section 21 |
 | `title` | string | M | — | Human-readable competition title |
 | `status` | string | M | `"P"` | Competition status — see Section 21 (Deroulement values) |
+| `software` | object | O | — | Competition management software producing this competition's data, when it differs from the tournament-level `software` object. Same structure and rules as in Section 8.1. |
 
 ---
 
@@ -911,7 +942,7 @@ openpiste/{tournament_id}/match/{match_id}   ← CMS publishes here
 openpiste/{tournament_id}/competition/...    ← CMS publishes here
 ```
 
-**Cloud broker (federation):** The bridge subscribes to all local topics and re-publishes under the same topic paths on the cloud broker. No transformation is required — the topic structure is already globally unique by tournament ID. The bridge is responsible for authentication to the cloud broker; local devices need no configuration change.
+**Cloud broker (federation):** The bridge subscribes to all local topics and re-publishes under the same topic paths on the cloud broker. No transformation is required — the topic structure is already globally unique by tournament ID. The bridge is responsible for authentication to the cloud broker; local devices need no configuration change. The bridge forwards payloads unchanged, including the `software` provenance object (Section 8.1).
 
 For venues that run multiple concurrent tournaments (uncommon but possible), each tournament has a distinct `{tournament_id}` and therefore a distinct topic namespace. There is no ambiguity.
 
@@ -1028,6 +1059,8 @@ Level 2 and Level 3 share the `"OPP2"` protocol identifier and a common version 
 **Live score integration.** The Level 3 match record carries `score_left` and `score_right` as final scores after match completion. Whether the Level 3 match topic should also carry live score updates (populated from the Level 2 apparatus score) is an open question. One option is for the bridge to update the Level 3 match record in real time. Another is to leave live scoring exclusively to Level 2 and use Level 3 only for final results. The current design favours the latter — it keeps the publisher separation clean — but this will be reviewed based on subscriber requirements.
 
 **Historical data and pagination.** The retained message model works well for current competition state but is not designed for historical queries (e.g. "all matches completed today"). A REST API for historical access is under consideration as a complement to the MQTT live feed. This would be consistent with the principle that MQTT serves live streams and REST serves management/historical queries, as stated in the Level 2 rationale document.
+
+**Attribution display guidelines.** Section 8.1 recommends that public displays attribute the producing software. Practical guidelines (minimum size, placement on broadcast graphics and small displays, logo format) are to be agreed with competition management software vendors.
 
 **JSON Schema.** A machine-readable JSON Schema for all Level 3 message types is planned as a separate document at `schemas/opp3/` in the OpenPiste repository. Not yet published.
 
