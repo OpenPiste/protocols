@@ -1095,7 +1095,7 @@ underlying fact, without either waiting on the other.
 **QoS:** 1
 **Retained:** `apparatus/uw2f` — Yes. `software/uw2f` — No, see Section 4.5 for rationale.
 
-Published on any change to the unwillingness-to-fight (passivity) timer or P-card state. The UW2F timer counts upward from zero. `apparatus/uw2f` is QoS 1, not QoS 0 like `apparatus/clock` — it changes only on P-card issuance or an explicit timer transition, not once per second, so there is no next tick to supersede a dropped message and delivery must be guaranteed. Retention addresses a separate need: a newly-connecting or reconnecting subscriber must see the current timer value and P-card counts immediately rather than wait for the next change event — which, especially while the timer sits idle at zero between passivity sequences, may not arrive for a long time. The apparatus publishes `apparatus/uw2f` as the continuously-held, authoritative state for its own display.
+Published on any change to the unwillingness-to-fight (passivity) timer or P-card state. The UW2F timer counts upward from zero. `apparatus/uw2f` uses QoS 1 so that timer transitions and P-card changes are delivered reliably. The draft synchronised-timer extension below also introduces periodic running-state updates; these do not replace immediate transition messages. Retention addresses a separate need: a newly-connecting or reconnecting subscriber must see the current timer value and P-card counts immediately rather than wait for the next change event — which, especially while the timer sits idle at zero between passivity sequences, may not arrive for a long time. The apparatus publishes `apparatus/uw2f` as the continuously-held, authoritative state for its own display.
 
 Competition management software publishes `software/uw2f` to seed or correct the apparatus's UW2F timer and P-card counts to a specific value — a one-shot instruction, analogous to `software/clock` (Section 11) and `software/score` (Section 13), not a repeating stream. Its case is the same as `software/clock`'s piste-transfer use: when an in-progress bout moves to a different apparatus mid-match, the new apparatus is seeded with the old one's passivity timer and P-cards so they survive the move instead of resetting to zero.
 
@@ -1161,6 +1161,121 @@ Competition management software publishes `software/uw2f` to seed or correct the
 | `5` | Fifth P-card |
 
 P-card semantics (which card type corresponds to which ordinal) are defined by the applicable rulebook and may change between rule editions. The protocol records only the ordinal position.
+
+### Draft proposal: synchronised passivity timer
+
+**Status: proposal for discussion, not an adopted requirement.** The normative wording below applies only to implementations adopting this extension. Existing implementations remain valid under the existing specification. The release/version assignment is subject to maintainer agreement under Section 29; the example below uses `1.0` only as the current draft's illustrative version, not as a claim that the extension has been adopted.
+
+The apparatus remains the sole authority for passivity timing. Displays and VAR systems consume its state; they MUST NOT derive authoritative timer resets from `blade_contact`. That independent event stream remains unchanged and available for video analysis and automated scouting.
+
+#### Extended apparatus state
+
+An apparatus adopting the extension MUST include the following fields in every `apparatus/uw2f` message, alongside the existing common and P-card fields:
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `time_ms` | non-negative integer | Elapsed passivity time in milliseconds at the instant identified by `ts`. Mandatory for this extension, even when `time` is included. |
+| `running` | boolean | Whether the timer is advancing at that instant. |
+| `ts` | unsigned 64-bit integer | Sampling instant, using the existing timestamp encoding and clock-source flags in Section 28. |
+| `limit_ms` | positive integer | Passivity threshold applicable to this bout, in milliseconds. |
+
+The optional `time` field retains its existing elapsed-time meaning. If present, it MUST describe the same sample as `time_ms`, formatted as `M:SS` with fractional seconds truncated. It MUST NOT be repurposed as a countdown.
+
+`ts` is the existing common timestamp field, not a new timestamp format. Implementations MUST preserve its full integer precision, including session timestamps, rather than round it through an IEEE-754 double.
+
+Example with an NTP timestamp and an illustrative 60-second threshold:
+
+```json
+{
+  "protocol": "OPP2",
+  "version": "1.0",
+  "seq": 48,
+  "ts": 1795176000000,
+  "time_ms": 23000,
+  "time": "0:23",
+  "running": true,
+  "limit_ms": 60000,
+  "right": { "p_card": 0 },
+  "left": { "p_card": 0 }
+}
+```
+
+The threshold is supplied by the apparatus's applicable rules/configuration, not hard-coded by subscribers. This proposal does not define fencing rules or award penalties.
+
+#### Publication and lifecycle
+
+The apparatus MUST publish a complete state immediately after start, stop, resume, reset, correction, threshold change, threshold expiry or P-card change, and on reconnect. While running, it MUST additionally publish at intervals no greater than 1,000 ms. QoS 1, retention and the existing global sequence-counter rules remain unchanged. Periodic updates carry fresh samples and sequence numbers; transport retransmissions are handled by the existing duplicate rules.
+
+| Transition | Required published state |
+|------------|--------------------------|
+| Start/resume | Current elapsed time, `running: true`, fresh `ts`. |
+| Stop | Elapsed time frozen at the stopping instant, `running: false`, fresh `ts`. |
+| Reset | `time_ms: 0`, explicit resulting `running` value, fresh `ts`. |
+| Correction | Corrected elapsed time, explicit resulting `running` value, fresh `ts`. |
+| Threshold reached | Proposed behaviour: `time_ms: limit_ms`, `running: false`, fresh `ts`. |
+| Threshold changed | New positive `limit_ms`, consistent elapsed time and running state, fresh `ts`. |
+
+For this proposed saturation behaviour, `0 <= time_ms <= limit_ms` MUST hold and `running` MUST be false when `time_ms == limit_ms`. Lowering the threshold below the elapsed value therefore clamps the value to the new threshold and stops the timer.
+
+The applicable apparatus rules determine which physical/referee actions trigger these transitions, including bout-clock changes and blade contact. The protocol conveys their outcome. Reaching the threshold MUST NOT be interpreted by a subscriber as a P-card award; the published P-card fields remain authoritative.
+
+**Review decision:** saturation and stopping at the threshold are proposed semantics, not an assertion about all existing apparatus. Maintainers and apparatus implementers should confirm these semantics before adoption.
+
+#### Subscriber reconstruction
+
+For a fresh NTP-synchronised sample, where both endpoints have a comparable synchronised UTC clock:
+
+```text
+age_ms = current_utc_ms - decoded_ts_ms
+elapsed_ms = time_ms
+if running:
+    elapsed_ms = min(limit_ms, time_ms + max(0, age_ms))
+remaining_ms = max(0, limit_ms - elapsed_ms)
+```
+
+A receiver MUST decode the clock-source flag before performing this calculation. A session-relative timestamp MUST NOT be subtracted from UTC. With an unavailable or untrusted shared time reference, it MUST display the reported value as unsynchronised, without claiming an accurate live countdown. A timestamp materially in the future is a timing fault, not evidence that a sample remains fresh indefinitely; receivers MUST mark the display unsynchronised when the difference exceeds their documented clock-error tolerance.
+
+Between accepted samples, a receiver SHOULD advance its display using a local monotonic clock, re-anchoring on every newer authoritative sample. A clock synchronisation discontinuity invalidates the current interpolation anchor. Local interpolation MUST NOT modify apparatus state, create resets or award penalties.
+
+Receivers MUST follow Section 27's sequence and publisher-session handling to reject duplicates and superseded samples. The time sample and P-card state are consumed atomically from each accepted message.
+
+#### Freshness and reconnect
+
+A retained message is the last published state, not proof that its publisher is currently online. A subscriber MUST mark the timer unavailable/stale when the apparatus reports offline or the subscriber loses its broker connection.
+
+For running timers, a sample older than 3,000 ms in comparable UTC, or a period longer than 3,000 ms without a newer accepted sample measured locally, MUST cause a stale indication and stop live interpolation. A delayed or duplicated message MUST NOT refresh the age of its original sample. The last reported value may remain visible if clearly marked stale. Stopped timers do not require periodic publications and MUST NOT be declared stale solely because their sampling timestamp is old.
+
+After reconnect, a receiver may reconstruct from a retained running sample only if its UTC age is within the freshness window and no offline status is known. Otherwise it waits for a fresh apparatus publication. Without comparable timestamps, a retained running sample is only a last-known value. The proposed 1,000 ms publication interval and 3,000 ms stale timeout require interoperability review.
+
+#### Software corrections and piste transfer
+
+`software/uw2f` remains a non-retained seed/correction request, not an authoritative display source. For implementations adopting this extension, a software request MAY additionally supply `running` and `limit_ms`; the apparatus validates these against its local rules and operator workflow. A supplied `ts` denotes the request's sampling instant only: the apparatus MUST NOT extrapolate a correction by adding network transit time.
+
+An accepted correction MUST result in a fresh complete `apparatus/uw2f` publication with an apparatus-generated `ts`. Rejected requests MUST NOT change local timing state. Legacy requests without the additional fields retain their existing handling; receivers MUST NOT infer extension support from such a request.
+
+For an extension-aware piste transfer, software MUST supply `time_ms`, `running: false`, `limit_ms` and the P-card state. The receiving apparatus MUST install the accepted state stopped and publish its own fresh state. Resuming requires explicit operator action. If the source's final stopped state is unavailable, the operator must verify/correct the transferred value; a last-known running sample is not an exact transfer snapshot.
+
+#### Compatibility and review checks
+
+The extension is additive. Existing field meanings, topics, QoS and P-card ordinals remain unchanged. A receiver may use synchronised reconstruction only when the complete, valid extended field set is present; absence of `running` MUST NOT be interpreted as `false`. Legacy messages remain usable as reported timer/P-card values. Unknown fields continue to be ignored under Section 29.
+
+Before adoption, assign the applicable protocol revision and add machine-readable validation when the planned OPP2 JSON Schema is published. Validation should enforce non-negative integer elapsed time, a positive integer threshold, boolean running state, a valid Section 28 timestamp and the proposed saturation invariants.
+
+Suggested interoperability checks:
+
+| Scenario | Expected result |
+|----------|-----------------|
+| Start at 23,000 ms; receive 250 ms later with synchronised clocks | Elapsed display approximately 23,250 ms; remaining approximately 36,750 ms for a 60,000 ms threshold. |
+| Stop, then receive after a delay | Display remains at the published stopped value. |
+| Reset while running / reset while stopped | Zero at the sample instant, with the explicitly published running state. |
+| Threshold expiry | Display reaches zero remaining; no subscriber-generated P-card. |
+| Duplicate or superseded update | No rollback and no freshness extension. |
+| Reconnect with a retained sample older than 3 seconds that says running | Stale indication until a fresh sample arrives. |
+| Stopped retained sample with an online apparatus | Fixed reported value; no running-update timeout. |
+| Session timestamp or loss of clock synchronisation | Reported value labelled unsynchronised; no UTC subtraction. |
+| Apparatus offline or subscriber disconnected | No apparently live countdown. |
+| Piste transfer | Validated stopped state on the new apparatus; explicit resume. |
+| Legacy message missing extension fields | Existing value display without synchronised interpolation. |
 
 ---
 
